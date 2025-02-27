@@ -9,22 +9,12 @@ export class ApiError extends Error {
   }
 }
 
-export const errorHandler = (
-  err: Error | ApiError,
+export function errorHandler(
+  err: any,
   req: Request,
   res: Response,
   next: NextFunction
-) => {
-  if (err instanceof ApiError) {
-    return res.status(err.statusCode).json({
-      status: 'error',
-      message: err.message,
-    });
-  }
-
-  console.error('Unexpected error:', err);
-  return res.status(500).json({
-    status: 'error',
-    message: 'Internal server error',
-  });
-};
+) {
+  console.error(err.stack);
+  res.status(500).json({ error: 'Internal Server Error' });
+}
