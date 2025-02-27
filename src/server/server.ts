@@ -20,9 +20,10 @@ app.use(
 // Socket.IO configuration
 const io = new Server(httpServer, {
   cors: {
-    origin: '*', // In production, change this to your specific domain
+    origin: '*', // En producción, restringe esto a tus dominios específicos
     methods: ['GET', 'POST'],
     credentials: true,
+    allowedHeaders: ['my-custom-header'],
   },
   transports: ['websocket', 'polling'],
 });
