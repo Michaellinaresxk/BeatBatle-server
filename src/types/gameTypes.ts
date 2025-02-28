@@ -61,3 +61,15 @@ export interface GameResults {
     totalAnswers: number;
   };
 }
+
+export interface QuestionData {
+  question: {
+    id: string;
+    question: string;
+    correctOptionId: string;
+    order: number;
+    totalQuestions: number;
+  };
+  options: any; // Replace with actual option type
+  timeLimit: number;
+}

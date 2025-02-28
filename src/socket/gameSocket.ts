@@ -1,25 +1,9 @@
 import type { Server, Socket } from 'socket.io';
 import { v4 as uuidv4 } from 'uuid';
-import { Player } from '../types/gameTypes';
+import { GameSettings, Player, QuestionData } from '../types/gameTypes';
+import { defaultQuestions, questionsByCategory } from '../constants/questions';
 
 // First, let's properly define the Room interface with currentQuestion
-interface GameSettings {
-  maxPlayers: number;
-  roundTime: number;
-  totalRounds: number;
-}
-
-interface QuestionData {
-  question: {
-    id: string;
-    question: string;
-    correctOptionId: string;
-    order: number;
-    totalQuestions: number;
-  };
-  options: any; // Replace with actual option type
-  timeLimit: number;
-}
 
 interface Room {
   roomCode: string;
@@ -663,55 +647,3 @@ function endGame(io: Server, roomCode: string) {
 function generateRoomCode(): string {
   return Math.random().toString(36).substring(2, 8).toUpperCase();
 }
-
-// Dummy data for questions - replace with your actual imports
-const defaultQuestions = [
-  {
-    question: "What's the capital of France?",
-    correctOptionId: 'A',
-    options: [
-      { id: 'A', text: 'Paris' },
-      { id: 'B', text: 'London' },
-      { id: 'C', text: 'Berlin' },
-      { id: 'D', text: 'Madrid' },
-    ],
-  },
-  {
-    question: 'Which planet is known as the Red Planet?',
-    correctOptionId: 'C',
-    options: [
-      { id: 'A', text: 'Venus' },
-      { id: 'B', text: 'Jupiter' },
-      { id: 'C', text: 'Mars' },
-      { id: 'D', text: 'Saturn' },
-    ],
-  },
-];
-
-// Dummy data for category questions
-const questionsByCategory: Record<string, any[]> = {
-  pop: [
-    {
-      question: "Who sang 'Billie Jean'?",
-      correctOptionId: 'A',
-      options: [
-        { id: 'A', text: 'Michael Jackson' },
-        { id: 'B', text: 'Prince' },
-        { id: 'C', text: 'Madonna' },
-        { id: 'D', text: 'Whitney Houston' },
-      ],
-    },
-  ],
-  rock: [
-    {
-      question: "Which band performed 'Stairway to Heaven'?",
-      correctOptionId: 'B',
-      options: [
-        { id: 'A', text: 'Rolling Stones' },
-        { id: 'B', text: 'Led Zeppelin' },
-        { id: 'C', text: 'Pink Floyd' },
-        { id: 'D', text: 'The Beatles' },
-      ],
-    },
-  ],
-};
