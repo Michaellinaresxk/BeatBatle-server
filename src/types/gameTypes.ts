@@ -28,7 +28,8 @@ export interface Room {
   currentRound: number;
   scores: Map<string, number>;
   category: string | null;
-  mobileControllers: MobileController[]; // Added mobile controllers
+  mobileControllers: MobileController[];
+  currentQuestion: QuestionData | null;
 }
 
 export interface Question {
@@ -39,6 +40,18 @@ export interface Question {
   audioUrl?: string;
   order: number;
   totalQuestions: number;
+}
+
+export interface QuizQuestion {
+  question: string;
+  options: {
+    A: string;
+    B: string;
+    C: string;
+    D: string;
+  };
+  correctOptionId: string;
+  audioUrl?: string; // Campo opcional
 }
 
 export interface Option {
@@ -53,11 +66,23 @@ export interface PlayerAnswer {
   isCorrect: boolean;
 }
 
-export interface GameResults {
+export interface GameResult {
   [playerId: string]: {
     nickname: string;
     score: number;
     correctAnswers: number;
     totalAnswers: number;
   };
+}
+
+export interface QuestionData {
+  question: {
+    id: string;
+    question: string;
+    correctOptionId: string;
+    order: number;
+    totalQuestions: number;
+  };
+  options: any; // Replace with actual option type
+  timeLimit: number;
 }
