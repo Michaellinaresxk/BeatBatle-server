@@ -1,86 +1,318 @@
 import type { Server, Socket } from 'socket.io';
 import { v4 as uuidv4 } from 'uuid';
-import type { Room, QuestionData, GameResult } from '../../types/gameTypes';
-import { getRoom } from '../../store/roomStore';
+import type {
+  Room,
+  QuestionData,
+  GameResult,
+  Player,
+  MobileController,
+} from '../../types/gameTypes';
+import { addRoom, getRoom, removeRoom, getRooms } from '../../store/roomStore';
 import {
   defaultQuestions,
   questionsByCategory,
 } from '../../constants/questions';
+import { generateRoomCode } from '../../utils/codeGenerator';
 
-/**
- * Starts a game in a room
- */
+export function createRoom(
+  socket: Socket,
+  options: {
+    category?: string;
+    nickname?: string;
+    gameSettings?: Partial<Room['gameSettings']>;
+  } = {}
+): Room | null {
+  const { category, nickname, gameSettings: customGameSettings } = options;
+
+  // Validate socket
+  if (!socket || !socket.id) {
+    console.error('❌ Invalid socket for room creation');
+    return null;
+  }
+
+  // Generate room code with extra validation
+  const roomCode = generateRoomCode();
+  if (!roomCode || roomCode.trim().length !== 6) {
+    console.error('❌ Failed to generate valid room code');
+    return null;
+  }
+
+  const hostNickname = (nickname || 'Host').trim();
+
+  const defaultGameSettings: Room['gameSettings'] = {
+    maxPlayers: 8,
+    roundTime: 30,
+    totalRounds: 10,
+  };
+
+  const room: Room = {
+    roomCode,
+    hostId: socket.id,
+    status: 'waiting',
+    players: [
+      {
+        id: socket.id,
+        nickname: hostNickname,
+        isHost: true,
+        score: 0,
+        correctAnswers: 0,
+        wrongAnswers: 0,
+      },
+    ],
+    gameSettings: { ...defaultGameSettings, ...customGameSettings },
+    currentRound: 0,
+    scores: new Map(),
+    category: category || null,
+    categoryType: '',
+    mobileControllers: [],
+    currentQuestion: null,
+    quizType: '',
+  };
+
+  // Log detailed room creation information
+  console.log(`🚀 Room Creation Details:`, {
+    roomCode,
+    hostId: socket.id,
+    hostNickname,
+    category: room.category,
+    gameSettings: room.gameSettings,
+  });
+
+  try {
+    // Add room to store
+    addRoom(room);
+
+    // Verify room was added
+    const verifyRoom = getRoom(roomCode);
+    if (!verifyRoom) {
+      console.error(`❌ Failed to retrieve newly created room: ${roomCode}`);
+      return null;
+    }
+  } catch (error) {
+    console.error('❌ Room creation failed:', error);
+    return null;
+  }
+
+  try {
+    // Join socket to room
+    socket.join(roomCode);
+  } catch (joinError) {
+    console.error('❌ Failed to join room socket:', joinError);
+    return null;
+  }
+
+  // Comprehensive room created event
+  socket.emit('room_created', {
+    roomCode,
+    hostId: socket.id,
+    category: room.category,
+    players: room.players,
+    categoryType: room.categoryType,
+    gameSettings: room.gameSettings,
+  });
+
+  // Debug: Log all current rooms
+  const currentRooms = getRooms();
+  console.log(`🏠 Total Rooms after creation: ${currentRooms.size}`);
+  currentRooms.forEach((r, code) => {
+    console.log(
+      `🔑 Room Code: ${code}, Players: ${r.players.length}, Controllers: ${r.mobileControllers.length}`
+    );
+  });
+
+  console.log(
+    `✅ Room created successfully: ${roomCode} with host: ${hostNickname}`
+  );
+  return room;
+}
+
+export function joinRoom(
+  socket: Socket,
+  {
+    roomCode,
+    nickname,
+    isMobileController = false,
+  }: {
+    roomCode: string;
+    nickname: string;
+    isMobileController?: boolean;
+  }
+) {
+  const logPrefix = `⚡ [Room ${roomCode}]`;
+  console.log(
+    `${logPrefix} Join Attempt:`,
+    JSON.stringify({
+      socketId: socket.id,
+      nickname,
+      isMobileController,
+    })
+  );
+
+  // Extensive room retrieval logging
+  const rooms = getRooms();
+  console.log(`${logPrefix} Total Rooms: ${rooms.size}`);
+  rooms.forEach((r, code) => {
+    console.log(
+      `${logPrefix} Existing Room: ${code}, Players: ${r.players.length}`
+    );
+  });
+
+  const room = getRoom(roomCode);
+  if (!room) {
+    console.error(`${logPrefix} ❌ Room not found`);
+
+    // Log additional debugging information
+    console.log(`${logPrefix} Room Code Details:`, {
+      length: roomCode.length,
+      trimmedLength: roomCode.trim().length,
+      roomCode: roomCode,
+    });
+
+    socket.emit('error', {
+      message: 'Room not found',
+      details: {
+        roomCode,
+        totalRooms: rooms.size,
+        existingRoomCodes: Array.from(rooms.keys()),
+      },
+    });
+    return false;
+  }
+}
+
+export function validateRoomCode(roomCode: string): boolean {
+  // Ensure room code is not empty and meets specific criteria
+  if (!roomCode || roomCode.trim() === '') {
+    console.warn('❌ Invalid room code: Empty or whitespace');
+    return false;
+  }
+
+  // Optional: Add more validation rules
+  // For example, check length, allowed characters, etc.
+  if (roomCode.length !== 6) {
+    console.warn(`❌ Invalid room code length: ${roomCode}`);
+    return false;
+  }
+
+  // Verify room exists in store
+  const room = getRoom(roomCode);
+  if (!room) {
+    console.warn(`❌ Room with code ${roomCode} does not exist`);
+    return false;
+  }
+
+  return true;
+}
+
+// Function to attempt room recovery
+export function recoverRoom(roomCode: string, socket: Socket): Room | null {
+  const room = getRoom(roomCode);
+
+  if (!room) {
+    console.error(`❌ Cannot recover room: ${roomCode} not found`);
+    return null;
+  }
+
+  // Attempt to re-add socket to room
+  try {
+    socket.join(roomCode);
+  } catch (joinError) {
+    console.error('❌ Failed to rejoin room socket:', joinError);
+    return null;
+  }
+
+  console.log(`🔄 Recovered room: ${roomCode}`);
+  return room;
+}
+
 export function startGame(
   io: Server,
   socket: Socket,
   roomCode: string,
-  category?: string
-): boolean {
+  categoryId?: string,
+  categoryType?: string
+): void {
+  console.log('⚠️ Starting game for room:', roomCode);
+  console.log('⚠️ With category:', categoryId, 'type:', categoryType);
+
   const room = getRoom(roomCode);
-  if (!room || room.hostId !== socket.id) {
-    socket.emit('error', {
-      message: 'You do not have permission to start the game',
-    });
-    return false;
+  if (!room) {
+    console.log(`⚠️ Room ${roomCode} not found`);
+    socket.emit('error', { message: 'Sala no encontrada' });
+    return;
   }
 
-  // Update category if provided
-  if (category && !room.category) {
-    room.category = category;
+  if (room.hostId !== socket.id) {
+    console.log('⚠️ Only host can start game');
+    socket.emit('error', { message: 'Solo el host puede iniciar el juego' });
+    return;
   }
 
+  if (room.status !== 'waiting') {
+    console.log('⚠️ Game already started');
+    socket.emit('error', { message: 'El juego ya ha comenzado' });
+    return;
+  }
+
+  // Set the game state to playing
   room.status = 'playing';
   room.currentRound = 1;
-  io.to(roomCode).emit('game_started', {
+
+  // Update category if provided
+  if (categoryId) {
+    room.category = categoryId;
+  }
+
+  if (categoryType) {
+    room.categoryType = categoryType;
+  }
+
+  // Evento para el host (quien inició el juego) - incluye skipSelection:false para indicar
+  // que NO debe saltar la pantalla de selección
+  socket.emit('host_game_started', {
     currentRound: room.currentRound,
     totalRounds: room.gameSettings.totalRounds,
     category: room.category,
+    categoryType: room.categoryType,
+    skipSelection: false,
   });
 
+  // Notificar a todos los demás clientes
+  socket.to(roomCode).emit('game_started', {
+    currentRound: room.currentRound,
+    totalRounds: room.gameSettings.totalRounds,
+    category: room.category,
+    categoryType: room.categoryType,
+    skipSelection: false,
+  });
+
+  // Start the first question
   startNewQuestion(io, roomCode);
-  return true;
 }
 
-/**
- * Checks if all controllers are ready and starts the game if they are
- */
+// También en checkAllReady necesitas hacer un cambio similar:
 export function checkAllReady(io: Server, room: Room): boolean {
+  // Verificar si hay controladores móviles y si todos están listos
   const allReady =
     room.mobileControllers.length > 0 &&
     room.mobileControllers.every((c) => c.isReady);
 
-  console.log('⚠️ Todos listos?', allReady);
+  console.log('⚠️ Todos listos?', allReady, {
+    controllersCount: room.mobileControllers.length,
+    readyCount: room.mobileControllers.filter((c) => c.isReady).length,
+  });
 
   if (allReady && room.status === 'waiting') {
-    console.log('⚠️ Starting game!');
+    console.log('⚠️ Todos los jugadores listos, iniciando juego!');
     room.status = 'playing';
     room.currentRound = 1;
 
-    // IMPORTANTE: guardar la pregunta en la sala para nuevos jugadores
-    const questionId = uuidv4();
-    const questions =
-      room.category && questionsByCategory[room.category]
-        ? questionsByCategory[room.category]
-        : defaultQuestions;
-
-    const questionData = questions[0];
-    room.currentQuestion = {
-      question: {
-        id: questionId,
-        question: questionData.question,
-        correctOptionId: questionData.correctOptionId,
-        order: room.currentRound,
-        totalQuestions: room.gameSettings.totalRounds,
-      },
-      options: questionData.options,
-      timeLimit: room.gameSettings.roundTime,
-    };
-
-    // Notificar a todos
+    // Notificar a todos con un evento normal
     io.to(room.roomCode).emit('game_started', {
       currentRound: room.currentRound,
       totalRounds: room.gameSettings.totalRounds,
       category: room.category,
+      categoryType: room.categoryType,
     });
 
     // Iniciar primera pregunta
@@ -91,9 +323,6 @@ export function checkAllReady(io: Server, room: Room): boolean {
   return false;
 }
 
-/**
- * Starts a new question in a room
- */
 export function startNewQuestion(io: Server, roomCode: string): void {
   const room = getRoom(roomCode);
   if (!room) {
@@ -176,9 +405,6 @@ export function startNewQuestion(io: Server, roomCode: string): void {
   }, 1000);
 }
 
-/**
- * Processes an answer submission
- */
 export function submitAnswer(
   io: Server,
   socket: Socket,
@@ -241,14 +467,12 @@ export function submitAnswer(
   }
 }
 
-/**
- * Ends a game and sends results to all players
- */
 export function endGame(io: Server, roomCode: string): void {
   const room = getRoom(roomCode);
   if (!room) return;
 
-  room.status = 'ended';
+  // Use the status value defined in the Room interface ('ended')
+  room.status = 'finished';
 
   // Prepare results
   const results: GameResult = {};

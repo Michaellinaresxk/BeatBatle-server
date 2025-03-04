@@ -13,23 +13,36 @@ export interface MobileController {
   isReady: boolean;
 }
 
+export type RoomStatus = 'waiting' | 'playing' | 'finished';
+
+export interface Room {
+  quizType: string;
+  roomCode: string;
+  hostId: string;
+  status: 'waiting' | 'playing' | 'finished';
+  players: Player[];
+  gameSettings: GameSettings;
+  currentRound: number;
+  scores: Map<string, number>;
+  category: string | null;
+  categoryType: string;
+  mobileControllers: MobileController[];
+  currentQuestion: QuestionData | null;
+}
+
 export interface GameSettings {
   maxPlayers: number;
   roundTime: number;
   totalRounds: number;
 }
 
-export interface Room {
-  roomCode: string;
-  hostId: string;
-  status: 'waiting' | 'playing' | 'ended';
-  players: Player[];
-  gameSettings: GameSettings;
-  currentRound: number;
-  scores: Map<string, number>;
-  category: string | null;
-  mobileControllers: MobileController[];
-  currentQuestion: QuestionData | null;
+export interface Player {
+  id: string;
+  nickname: string;
+  isHost: boolean;
+  score: number;
+  correctAnswers: number;
+  wrongAnswers: number;
 }
 
 export interface Question {

@@ -1,30 +1,19 @@
 import type { Room } from '../types/gameTypes';
 
-// In-memory store for rooms
-const rooms = new Map<string, Room>();
+const rooms: Map<string, Room> = new Map();
 
-export const getRooms = () => rooms;
-
-export const getRoom = (roomCode: string): Room | undefined => {
-  return rooms.get(roomCode);
-};
-
-export const addRoom = (room: Room): void => {
+export function addRoom(room: Room): void {
   rooms.set(room.roomCode, room);
-};
+}
 
-export const removeRoom = (roomCode: string): boolean => {
-  return rooms.delete(roomCode);
-};
+export function getRoom(roomCode: string): Room | undefined {
+  return rooms.get(roomCode);
+}
 
-export const updateRoom = (
-  roomCode: string,
-  updates: Partial<Room>
-): Room | undefined => {
-  const room = rooms.get(roomCode);
-  if (!room) return undefined;
+export function removeRoom(roomCode: string): void {
+  rooms.delete(roomCode);
+}
 
-  const updatedRoom = { ...room, ...updates };
-  rooms.set(roomCode, updatedRoom);
-  return updatedRoom;
-};
+export function getRooms(): Map<string, Room> {
+  return rooms;
+}
