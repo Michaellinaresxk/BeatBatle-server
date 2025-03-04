@@ -22,9 +22,6 @@ export const validateGameSettings = (
 ) => {
   const { maxPlayers, roundTime, totalRounds } = req.body;
 
-  if (maxPlayers && (maxPlayers < 2 || maxPlayers > 8)) {
-    throw new ApiError(400, 'Players must be between 2 and 8');
-  }
 
   if (roundTime && (roundTime < 10 || roundTime > 60)) {
     throw new ApiError(400, 'Round time must be between 10 and 60 seconds');
