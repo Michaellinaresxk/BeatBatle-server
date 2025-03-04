@@ -66,6 +66,7 @@ export function createRoom(
     categoryType: '',
     mobileControllers: [],
     currentQuestion: null,
+    quizType: '',
   };
 
   // Log detailed room creation information
@@ -228,11 +229,11 @@ export function startGame(
   io: Server,
   socket: Socket,
   roomCode: string,
-  category?: string,
+  categoryId?: string,
   categoryType?: string
 ): void {
   console.log('⚠️ Starting game for room:', roomCode);
-  console.log('⚠️ With category:', category, 'type:', categoryType);
+  console.log('⚠️ With category:', categoryId, 'type:', categoryType);
 
   const room = getRoom(roomCode);
   if (!room) {
@@ -258,29 +259,31 @@ export function startGame(
   room.currentRound = 1;
 
   // Update category if provided
-  if (category) {
-    room.category = category;
+  if (categoryId) {
+    room.category = categoryId;
   }
 
   if (categoryType) {
     room.categoryType = categoryType;
   }
 
-  // IMPORTANTE: Emitir un evento personalizado para quién inicia el juego directo desde la web
-  // Solo el host que inicia el juego manualmente recibirá este evento
+  // Evento para el host (quien inició el juego) - incluye skipSelection:false para indicar
+  // que NO debe saltar la pantalla de selección
   socket.emit('host_game_started', {
     currentRound: room.currentRound,
     totalRounds: room.gameSettings.totalRounds,
     category: room.category,
     categoryType: room.categoryType,
+    skipSelection: false,
   });
 
-  // Notificar a todos los demás clientes en la sala con el evento normal
+  // Notificar a todos los demás clientes
   socket.to(roomCode).emit('game_started', {
     currentRound: room.currentRound,
     totalRounds: room.gameSettings.totalRounds,
     category: room.category,
     categoryType: room.categoryType,
+    skipSelection: false,
   });
 
   // Start the first question
@@ -289,35 +292,20 @@ export function startGame(
 
 // También en checkAllReady necesitas hacer un cambio similar:
 export function checkAllReady(io: Server, room: Room): boolean {
+  // Verificar si hay controladores móviles y si todos están listos
   const allReady =
     room.mobileControllers.length > 0 &&
     room.mobileControllers.every((c) => c.isReady);
 
-  console.log('⚠️ Todos listos?', allReady);
+  console.log('⚠️ Todos listos?', allReady, {
+    controllersCount: room.mobileControllers.length,
+    readyCount: room.mobileControllers.filter((c) => c.isReady).length,
+  });
 
   if (allReady && room.status === 'waiting') {
-    console.log('⚠️ Starting game!');
+    console.log('⚠️ Todos los jugadores listos, iniciando juego!');
     room.status = 'playing';
     room.currentRound = 1;
-
-    const questionId = uuidv4();
-    const questions =
-      room.category && questionsByCategory[room.category]
-        ? questionsByCategory[room.category]
-        : defaultQuestions;
-
-    const questionData = questions[0];
-    room.currentQuestion = {
-      question: {
-        id: questionId,
-        question: questionData.question,
-        correctOptionId: questionData.correctOptionId,
-        order: room.currentRound,
-        totalQuestions: room.gameSettings.totalRounds,
-      },
-      options: questionData.options,
-      timeLimit: room.gameSettings.roundTime,
-    };
 
     // Notificar a todos con un evento normal
     io.to(room.roomCode).emit('game_started', {

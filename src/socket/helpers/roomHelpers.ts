@@ -61,6 +61,7 @@ export function createRoom(
     categoryType: '',
     mobileControllers: [],
     currentQuestion: null,
+    quizType: '',
   };
 
   // Log room creation details

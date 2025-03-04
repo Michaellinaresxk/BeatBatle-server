@@ -1,12 +1,3 @@
-export interface Room {
-  roomCode: string;
-  hostId: string;
-  status: 'waiting' | 'playing' | 'finished';
-  players: Player[];
-  category: string | null;
-  mobileControllers: MobileController[];
-}
-
 export interface Player {
   id: string;
   nickname: string;
@@ -25,6 +16,7 @@ export interface MobileController {
 export type RoomStatus = 'waiting' | 'playing' | 'finished';
 
 export interface Room {
+  quizType: string;
   roomCode: string;
   hostId: string;
   status: 'waiting' | 'playing' | 'finished';

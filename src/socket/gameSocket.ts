@@ -127,17 +127,24 @@ export default function initializeSocket(io: Server) {
           return;
         }
 
-        // Intentar unirse como controlador móvil
-        const success = joinRoom(socket, {
-          ...data,
-          roomCode: normalizedRoomCode,
-          isMobileController: true,
-        });
+        const success = joinRoom(socket, { ...data, isMobileController: true });
+
+        // // Intentar unirse como controlador móvil
+        // const success = joinRoom(socket, {
+        //   ...data,
+        //   roomCode: normalizedRoomCode,
+        //   isMobileController: true,
+        // });
 
         if (success) {
-          console.log(
-            `✅ Controller ${socket.id} joined room ${normalizedRoomCode}`
-          );
+          // Si es exitoso, emitir un evento específico al host para que navegue a selección
+          const room = getRoom(data.roomCode.trim().toUpperCase());
+          if (room && room.hostId) {
+            // Enviar evento solo al host
+            io.to(room.hostId).emit('goto_quiz_selection', {
+              roomCode: data.roomCode,
+            });
+          }
         }
       }
     );
@@ -412,28 +419,20 @@ export default function initializeSocket(io: Server) {
     socket.on(
       'toggle_ready',
       (data: { roomCode: string; isReady: boolean }) => {
+        const { roomCode, isReady } = data;
         console.log('🔄 Toggle ready state:', data);
 
-        if (!data.roomCode) {
-          console.error('❌ Missing room code for toggle ready operation');
-          socket.emit('error', { message: 'Missing room code' });
-          return;
-        }
-
-        const { roomCode, isReady } = data;
         const normalizedRoomCode = roomCode.trim().toUpperCase();
-
-        // Comprobar si la sala existe
         const room = getRoom(normalizedRoomCode);
+
         if (!room) {
           console.error(
             `❌ Room ${normalizedRoomCode} not found for toggle ready`
           );
-          socket.emit('error', { message: 'Room not found' });
           return;
         }
 
-        // Buscar el controlador en la sala
+        // Encontrar controlador
         const controllerIndex = room.mobileControllers.findIndex(
           (c) => c.id === socket.id
         );
@@ -442,71 +441,62 @@ export default function initializeSocket(io: Server) {
           console.error(
             `❌ Controller ${socket.id} not found in room ${normalizedRoomCode}`
           );
-          socket.emit('error', {
-            message: 'You are not registered as a controller in this room',
-          });
           return;
         }
 
-        // Actualizar el estado "listo" del controlador
+        // Actualizar estado listo
         room.mobileControllers[controllerIndex].isReady = isReady;
+
+        // Log detallado de los controladores
         console.log(
-          `✅ Controller ${socket.id} ready state updated to: ${isReady}`
+          `📊 Estado de controladores en sala ${normalizedRoomCode}:`,
+          room.mobileControllers.map((c) => ({
+            id: c.id,
+            nickname: c.nickname,
+            isReady: c.isReady,
+          }))
         );
 
-        // Emitir el estado actualizado a todos los miembros de la sala
+        // Emitir estado actualizado
         io.to(normalizedRoomCode).emit('player_ready', {
           playerId: socket.id,
           nickname: room.mobileControllers[controllerIndex].nickname,
           isReady: isReady,
         });
 
-        // Comprobar si todos están listos
-        checkAllReady(io, room);
-      }
-    );
-
-    // Actualizar categoría
-    socket.on(
-      'update_room_category',
-      (data: {
-        roomCode: string;
-        categoryType: string;
-        categoryId: string;
-      }) => {
-        console.log('🔄 Update category request:', data);
-
-        if (!data.roomCode || !data.categoryType || !data.categoryId) {
-          console.error('❌ Invalid category update data');
-          socket.emit('error', { message: 'Invalid category data' });
-          return;
-        }
-
-        const { roomCode, categoryType, categoryId } = data;
-        const normalizedRoomCode = roomCode.trim().toUpperCase();
-
-        const room = getRoom(normalizedRoomCode);
-        if (!room) {
-          console.error(
-            `❌ Room ${normalizedRoomCode} not found for category update`
-          );
-          socket.emit('error', { message: 'Room not found' });
-          return;
-        }
-
-        // Actualizar categoría
-        room.category = categoryId;
-        room.categoryType = categoryType;
-
-        // Notificar a todos los miembros de la sala
-        io.to(normalizedRoomCode).emit('category_updated', {
-          categoryType,
-          categoryId,
-        });
+        // Verificar si todos están listos
+        const allControllersReady =
+          room.mobileControllers.length > 0 &&
+          room.mobileControllers.every((c) => c.isReady);
 
         console.log(
-          `✅ Category updated for room ${normalizedRoomCode}: ${categoryType} - ${categoryId}`
+          `🔍 ¿Todos los controladores listos? ${allControllersReady} (${
+            room.mobileControllers.filter((c) => c.isReady).length
+          }/${room.mobileControllers.length})`
         );
+
+        // Si todos están listos, iniciar juego
+        if (allControllersReady && room.status === 'waiting') {
+          console.log(
+            `🚀 Todos los controladores listos, iniciando juego en sala ${normalizedRoomCode}`
+          );
+
+          // Cambiar estado del juego
+          room.status = 'playing';
+
+          // Notificar a todos los clientes
+          io.to(normalizedRoomCode).emit('all_ready', {
+            message: 'Todos los jugadores están listos',
+          });
+
+          // Este evento debería hacer que los clientes naveguen a la pantalla adecuada
+          io.to(normalizedRoomCode).emit('game_started', {
+            currentRound: room.currentRound || 1,
+            totalRounds: room.gameSettings?.totalRounds || 10,
+            category: room.category,
+            categoryType: room.categoryType,
+          });
+        }
       }
     );
 
@@ -542,6 +532,96 @@ export default function initializeSocket(io: Server) {
         console.log(
           `✅ Quiz type selected for room ${normalizedRoomCode}: ${quizType}`
         );
+      }
+    );
+
+    socket.on(
+      'send_controller_command',
+      (data: {
+        roomCode: string;
+        action: string;
+        direction?: string;
+        selection?: any;
+      }) => {
+        if (!data || !data.roomCode || !data.action) {
+          console.error('❌ Datos de comando inválidos');
+          return;
+        }
+
+        const normalizedRoomCode = data.roomCode.trim().toUpperCase();
+        const room = getRoom(normalizedRoomCode);
+
+        if (!room) {
+          console.error(
+            `❌ Room ${normalizedRoomCode} not found for controller command`
+          );
+          return;
+        }
+
+        console.log(
+          `📡 Reenviando comando del controlador: ${data.action} a sala ${normalizedRoomCode}`
+        );
+
+        // Reenviar el comando a todos los clientes web en la sala (excepto al emisor)
+        socket.to(normalizedRoomCode).emit('controller_command', {
+          ...data,
+          playerId: socket.id,
+          nickname:
+            room.mobileControllers.find((c) => c.id === socket.id)?.nickname ||
+            'Unknown',
+        });
+      }
+    );
+
+    socket.on(
+      'send_controller_command',
+      (data: { roomCode: string; action: string; direction?: string }) => {
+        console.log('Controller command received:', data);
+        const { roomCode, action, direction } = data;
+
+        const room = getRoom(roomCode);
+        if (!room) {
+          console.error(`Room ${roomCode} not found`);
+          return;
+        }
+
+        // Reenviar el comando a todos los clientes en la sala, excepto al emisor
+        socket.to(roomCode).emit('controller_command', { action, direction });
+
+        // Manejar acciones específicas si es necesario
+        switch (action) {
+          case 'move':
+            // Puedes agregar lógica adicional aquí si es necesario
+            break;
+          case 'confirm_selection':
+            // Puedes agregar lógica adicional aquí si es necesario
+            break;
+          // Agrega más casos según sea necesario
+        }
+      }
+    );
+
+    // Manejar la selección del tipo de quiz
+    socket.on(
+      'select_quiz_type',
+      (data: { roomCode: string; quizType: string }) => {
+        console.log('Quiz type selected:', data);
+        const { roomCode, quizType } = data;
+
+        const room = getRoom(roomCode);
+        if (!room) {
+          console.error(`Room ${roomCode} not found`);
+          return;
+        }
+
+        // Actualizar el tipo de quiz en la sala
+        room.quizType = quizType;
+
+        // Notificar a todos los clientes en la sala sobre la selección
+        io.to(roomCode).emit('quiz_type_selected', { quizType });
+
+        // Opcionalmente, puedes iniciar la siguiente fase del juego aquí
+        // Por ejemplo, cargar las preguntas para el tipo de quiz seleccionado
       }
     );
 
