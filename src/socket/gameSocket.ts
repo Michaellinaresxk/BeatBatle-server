@@ -334,7 +334,51 @@ export default function initializeSocket(io: Server) {
       handleDisconnect(socket);
     });
 
-    // Inicio de juego
+    socket.on(
+      'select_quiz_type',
+      (data: { roomCode: string; quizType: string }) => {
+        console.log('🔄 Select quiz type request:', data);
+
+        if (!data.roomCode || !data.quizType) {
+          console.error('❌ Invalid quiz type selection data');
+          socket.emit('error', { message: 'Invalid quiz type data' });
+          return;
+        }
+
+        const { roomCode, quizType } = data;
+        const normalizedRoomCode = roomCode.trim().toUpperCase();
+
+        const room = getRoom(normalizedRoomCode);
+        if (!room) {
+          console.error(
+            `❌ Room ${normalizedRoomCode} not found for quiz type selection`
+          );
+          socket.emit('error', { message: 'Room not found' });
+          return;
+        }
+
+        // Actualizar el tipo de quiz en la sala
+        room.quizType = quizType;
+
+        // Notificar a todos los clientes en la sala sobre la selección
+        io.to(normalizedRoomCode).emit('quiz_type_selected', {
+          quizType,
+          roomCode: normalizedRoomCode,
+        });
+
+        // Enviar evento de navegación separado
+        io.to(normalizedRoomCode).emit('goto_category_selection', {
+          categoryType: quizType,
+          roomCode: normalizedRoomCode,
+        });
+
+        console.log(
+          `✅ Quiz type selected for room ${normalizedRoomCode}: ${quizType}`
+        );
+      }
+    );
+
+    // 2. En el manejador de start_game, no navegar automáticamente:
     socket.on(
       'start_game',
       (data: {
@@ -377,8 +421,18 @@ export default function initializeSocket(io: Server) {
           return;
         }
 
-        // Iniciar el juego con la categoría seleccionada
-        startGame(io, socket, normalizedRoomCode, categoryId, categoryType);
+        // Actualizar el estado del juego en el servidor
+        room.status = 'playing';
+        if (categoryId) room.category = categoryId;
+        if (categoryType) room.categoryType = categoryType;
+
+        // Notificar a todos los clientes que el juego ha iniciado
+        io.to(normalizedRoomCode).emit('game_started', {
+          roomCode: normalizedRoomCode,
+          category: room.category,
+          categoryType: room.categoryType,
+          // No incluir skipSelection para evitar navegación automática
+        });
       }
     );
 
@@ -504,49 +558,6 @@ export default function initializeSocket(io: Server) {
     );
 
     // Seleccionar tipo de quiz
-    socket.on(
-      'select_quiz_type',
-      (data: { roomCode: string; quizType: string }) => {
-        console.log('🔄 Select quiz type request:', data);
-
-        if (!data.roomCode || !data.quizType) {
-          console.error('❌ Invalid quiz type selection data');
-          socket.emit('error', { message: 'Invalid quiz type data' });
-          return;
-        }
-
-        const { roomCode, quizType } = data;
-        const normalizedRoomCode = roomCode.trim().toUpperCase();
-
-        const room = getRoom(normalizedRoomCode);
-        if (!room) {
-          console.error(
-            `❌ Room ${normalizedRoomCode} not found for quiz type selection`
-          );
-          socket.emit('error', { message: 'Room not found' });
-          return;
-        }
-
-        // Actualizar el tipo de quiz en la sala
-        room.quizType = quizType;
-
-        // Notificar a todos los clientes en la sala sobre la selección
-        io.to(normalizedRoomCode).emit('quiz_type_selected', {
-          quizType,
-          roomCode: normalizedRoomCode,
-        });
-
-        // Navegar a selección de categoría
-        io.to(normalizedRoomCode).emit('goto_category_selection', {
-          categoryType: quizType,
-          roomCode: normalizedRoomCode,
-        });
-
-        console.log(
-          `✅ Quiz type selected for room ${normalizedRoomCode}: ${quizType}`
-        );
-      }
-    );
 
     // Seleccionar categoría específica
     socket.on(
