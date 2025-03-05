@@ -12,26 +12,24 @@ const server = http.createServer(app);
 // Configurar CORS apropiadamente para Express y Socket.IO
 const corsOptions = {
   origin: '*', // En producción, deberías restringir esto
-  methods: ['GET', 'POST'],
+  methods: ['GET', 'POST', 'OPTIONS'], // Añadir OPTIONS para preflight requests
   credentials: true,
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept'], // Agregar 'Accept'
 };
 
 app.use(cors(corsOptions));
 
-// Crear el servidor Socket.IO con configuración mejorada
 const io = new Server(server, {
   cors: corsOptions,
   path: '/socket.io',
-  connectTimeout: 30000, // Aumentar timeout a 30 segundos
-  pingTimeout: 60000, // Aumentar ping timeout a 60 segundos
-  pingInterval: 25000, // Aumentar ping interval a 25 segundos
-  transports: ['websocket', 'polling'], // Permitir ambos modos pero websocket es preferido
+  connectTimeout: 30000,
+  pingTimeout: 60000,
+  pingInterval: 25000,
+  transports: ['polling', 'websocket'], // Invertir el orden: primero polling, luego websocket
   allowUpgrades: true,
-  perMessageDeflate: true, // Compresión para mejor rendimiento
-  maxHttpBufferSize: 1e8, // 100 MB para soportar archivos más grandes si es necesario
+  perMessageDeflate: true,
+  maxHttpBufferSize: 1e8,
 });
-
 // Añadir middleware para registrar conexiones y manejo de errores
 io.use((socket, next) => {
   const address = socket.handshake.address;
@@ -83,6 +81,24 @@ app.get('/api/diagnostics/rooms', (req, res) => {
     console.error('Error al obtener información de salas:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
+});
+
+app.post('/api/control/:roomCode/:action', (req, res) => {
+  const { roomCode, action } = req.params;
+  const { direction } = req.body;
+
+  console.log(
+    `API recibió comando: ${action} ${direction || ''} para sala ${roomCode}`
+  );
+
+  // Reenviar a través de socket.io
+  if (action === 'direction' && direction) {
+    io.to(roomCode).emit('controller_direction', { direction });
+  } else if (action === 'enter') {
+    io.to(roomCode).emit('controller_enter', {});
+  }
+
+  res.json({ success: true });
 });
 
 // Iniciar el servidor

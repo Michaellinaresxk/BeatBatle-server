@@ -129,13 +129,6 @@ export default function initializeSocket(io: Server) {
 
         const success = joinRoom(socket, { ...data, isMobileController: true });
 
-        // // Intentar unirse como controlador móvil
-        // const success = joinRoom(socket, {
-        //   ...data,
-        //   roomCode: normalizedRoomCode,
-        //   isMobileController: true,
-        // });
-
         if (success) {
           // Si es exitoso, emitir un evento específico al host para que navegue a selección
           const room = getRoom(data.roomCode.trim().toUpperCase());
@@ -291,6 +284,101 @@ export default function initializeSocket(io: Server) {
         });
       }
     );
+
+    socket.on('controller_direction', (data) => {
+      console.log('➡️ RECIBIDO controller_direction:', {
+        socketId: socket.id,
+        data: data,
+      });
+      if (!data || !data.roomCode || !data.direction) return;
+
+      const normalizedRoomCode = data.roomCode.trim().toUpperCase();
+      console.log(
+        `📡 Controller direction: ${data.direction} in room ${normalizedRoomCode}`
+      );
+
+      // Reenviar a TODOS los clientes en la sala
+      io.to(normalizedRoomCode).emit('controller_direction', {
+        direction: data.direction,
+        playerId: socket.id,
+      });
+    });
+
+    socket.on('controller_enter', (data) => {
+      console.log('➡️ RECIBIDO controller_enter:', {
+        socketId: socket.id,
+        data: data,
+      });
+      if (!data || !data.roomCode) return;
+
+      const normalizedRoomCode = data.roomCode.trim().toUpperCase();
+      console.log(`📡 Controller ENTER in room ${normalizedRoomCode}`);
+
+      // Reenviar a TODOS los clientes en la sala
+      io.to(normalizedRoomCode).emit('controller_enter', {
+        playerId: socket.id,
+      });
+    });
+    socket.on('send_controller_command', (data) => {
+      if (!data || !data.roomCode || !data.action) {
+        console.error('❌ Datos de comando inválidos');
+        return;
+      }
+
+      const normalizedRoomCode = data.roomCode.trim().toUpperCase();
+      const room = getRoom(normalizedRoomCode);
+
+      if (!room) {
+        console.error(
+          `❌ Room ${normalizedRoomCode} not found for controller command`
+        );
+        return;
+      }
+
+      console.log(
+        `📡 Reenviando comando del controlador: ${data.action} a sala ${normalizedRoomCode}`,
+        data
+      );
+
+      // Reenviar el comando a todos los clientes web en la sala
+      io.to(normalizedRoomCode).emit('send_controller_command', {
+        ...data,
+        playerId: socket.id,
+        nickname:
+          room.mobileControllers.find((c) => c.id === socket.id)?.nickname ||
+          'Unknown',
+      });
+    });
+
+    // Manejar cambios de pantalla
+    socket.on('screen_changed', (data) => {
+      if (!data || !data.roomCode || !data.screen) {
+        console.error('❌ Datos de cambio de pantalla inválidos');
+        return;
+      }
+
+      const normalizedRoomCode = data.roomCode.trim().toUpperCase();
+      const room = getRoom(normalizedRoomCode);
+
+      if (!room) {
+        console.error(
+          `❌ Room ${normalizedRoomCode} not found for screen change`
+        );
+        return;
+      }
+
+      console.log(
+        `📡 Notificando cambio de pantalla a controladores: ${data.screen} en sala ${normalizedRoomCode}`
+      );
+
+      // Solo enviar a controladores móviles, no a todos los clientes
+      room.mobileControllers.forEach((controller) => {
+        io.to(controller.id).emit('screen_changed', {
+          screen: data.screen,
+          options: data.options || [],
+        });
+      });
+    });
 
     // Abandonar sala
     socket.on('leave_room', (data: { roomCode: string }) => {
@@ -535,71 +623,121 @@ export default function initializeSocket(io: Server) {
       }
     );
 
-    socket.on(
-      'send_controller_command',
-      (data: {
-        roomCode: string;
-        action: string;
-        direction?: string;
-        selection?: any;
-      }) => {
-        if (!data || !data.roomCode || !data.action) {
-          console.error('❌ Datos de comando inválidos');
-          return;
-        }
+    socket.on('send_controller_command', (data) => {
+      if (!data || !data.roomCode || !data.action) {
+        console.error('❌ Datos de comando inválidos');
+        return;
+      }
 
-        const normalizedRoomCode = data.roomCode.trim().toUpperCase();
-        const room = getRoom(normalizedRoomCode);
+      const normalizedRoomCode = data.roomCode.trim().toUpperCase();
+      const room = getRoom(normalizedRoomCode);
 
-        if (!room) {
-          console.error(
-            `❌ Room ${normalizedRoomCode} not found for controller command`
-          );
-          return;
-        }
-
-        console.log(
-          `📡 Reenviando comando del controlador: ${data.action} a sala ${normalizedRoomCode}`
+      if (!room) {
+        console.error(
+          `❌ Room ${normalizedRoomCode} not found for controller command`
         );
+        return;
+      }
 
-        // Reenviar el comando a todos los clientes web en la sala (excepto al emisor)
-        socket.to(normalizedRoomCode).emit('controller_command', {
-          ...data,
-          playerId: socket.id,
-          nickname:
-            room.mobileControllers.find((c) => c.id === socket.id)?.nickname ||
-            'Unknown',
+      console.log(
+        `📡 Reenviando comando del controlador: ${data.action} a sala ${normalizedRoomCode}`,
+        data
+      );
+
+      // Reenviar el comando a todos los clientes web en la sala
+      io.to(normalizedRoomCode).emit('send_controller_command', {
+        ...data,
+        playerId: socket.id,
+        nickname:
+          room.mobileControllers.find((c) => c.id === socket.id)?.nickname ||
+          'Unknown',
+      });
+    });
+
+    // Manejar cambios de pantalla
+    socket.on('screen_changed', (data) => {
+      if (!data || !data.roomCode || !data.screen) {
+        console.error('❌ Datos de cambio de pantalla inválidos');
+        return;
+      }
+
+      const normalizedRoomCode = data.roomCode.trim().toUpperCase();
+      const room = getRoom(normalizedRoomCode);
+
+      if (!room) {
+        console.error(
+          `❌ Room ${normalizedRoomCode} not found for screen change`
+        );
+        return;
+      }
+
+      console.log(
+        `📡 Notificando cambio de pantalla a controladores: ${data.screen} en sala ${normalizedRoomCode}`
+      );
+
+      // Solo enviar a controladores móviles, no a todos los clientes
+      room.mobileControllers.forEach((controller) => {
+        io.to(controller.id).emit('screen_changed', {
+          screen: data.screen,
+          options: data.options || [],
         });
+      });
+    });
+
+    socket.on('screen_changed', (data) => {
+      const { roomCode, screen, options } = data;
+      if (!roomCode) return;
+
+      const room = getRoom(roomCode);
+      if (!room) return;
+
+      // Enviar el cambio de pantalla solo a los controladores móviles
+      room.mobileControllers.forEach((controller) => {
+        io.to(controller.id).emit('screen_changed', { screen, options });
+      });
+    });
+
+    // También para el feedback del controlador
+    socket.on('controller_feedback', (data) => {
+      const { roomCode, playerId } = data;
+      if (!roomCode || !playerId) return;
+
+      const room = getRoom(roomCode);
+      if (!room) return;
+
+      // Encontrar el controlador específico
+      const controller = room.mobileControllers.find((c) => c.id === playerId);
+      if (controller) {
+        io.to(controller.id).emit('controller_feedback', data);
       }
-    );
+    });
 
-    socket.on(
-      'send_controller_command',
-      (data: { roomCode: string; action: string; direction?: string }) => {
-        console.log('Controller command received:', data);
-        const { roomCode, action, direction } = data;
+    socket.on('controller_direction', (data) => {
+      if (!data || !data.roomCode || !data.direction) return;
 
-        const room = getRoom(roomCode);
-        if (!room) {
-          console.error(`Room ${roomCode} not found`);
-          return;
-        }
+      const normalizedRoomCode = data.roomCode.trim().toUpperCase();
+      console.log(
+        `📡 Controller direction: ${data.direction} in room ${normalizedRoomCode}`
+      );
 
-        // Reenviar el comando a todos los clientes en la sala, excepto al emisor
-        socket.to(roomCode).emit('controller_command', { action, direction });
+      // Reenviar a TODOS los clientes en la sala
+      io.to(normalizedRoomCode).emit('controller_direction', {
+        direction: data.direction,
+        playerId: socket.id,
+      });
+    });
 
-        // Manejar acciones específicas si es necesario
-        switch (action) {
-          case 'move':
-            // Puedes agregar lógica adicional aquí si es necesario
-            break;
-          case 'confirm_selection':
-            // Puedes agregar lógica adicional aquí si es necesario
-            break;
-          // Agrega más casos según sea necesario
-        }
-      }
-    );
+    socket.on('controller_enter', (data) => {
+      if (!data || !data.roomCode) return;
+
+      const normalizedRoomCode = data.roomCode.trim().toUpperCase();
+      console.log(`📡 Controller ENTER in room ${normalizedRoomCode}`);
+
+      // Reenviar a TODOS los clientes en la sala
+      io.to(normalizedRoomCode).emit('controller_enter', {
+        playerId: socket.id,
+      });
+    });
 
     // Manejar la selección del tipo de quiz
     socket.on(
