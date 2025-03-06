@@ -165,10 +165,8 @@ export function joinRoom(
     })
   );
 
-  // Normalizar el código de sala
   const normalizedRoomCode = roomCode.trim().toUpperCase();
 
-  // Obtener la sala desde el almacenamiento
   const room = getRoom(normalizedRoomCode);
   if (!room) {
     console.error(`${logPrefix} ❌ Room not found`);
@@ -183,7 +181,7 @@ export function joinRoom(
     return false;
   }
 
-  // Verificar si el juego ya comenzó (solo para jugadores regulares)
+  // Check if the game has already started (only for regular players)
   if (room.status !== 'waiting' && !isMobileController) {
     socket.emit('error', {
       message: 'Game has already started',
@@ -193,7 +191,6 @@ export function joinRoom(
   }
 
   try {
-    // Verificar si este socket ya es parte de la sala
     const existingPlayer = room.players.find((p) => p.id === socket.id);
     const existingController = room.mobileControllers.find(
       (c) => c.id === socket.id
@@ -201,10 +198,9 @@ export function joinRoom(
 
     if (existingPlayer || existingController) {
       console.log(
-        `${logPrefix} ⚠️ Socket ${socket.id} ya está en la sala, actualizando`
+        `${logPrefix} ⚠️ Socket ${socket.id} already in the room, updating`
       );
 
-      // El jugador ya está en la sala, solo actualizar su unión al canal socket
       socket.join(normalizedRoomCode);
 
       if (existingPlayer) {
@@ -231,11 +227,9 @@ export function joinRoom(
       return true;
     }
 
-    // Unirse al canal socket
     socket.join(normalizedRoomCode);
 
     if (isMobileController) {
-      // Añadir como controlador móvil
       const controller: MobileController = {
         id: socket.id,
         nickname,
@@ -244,7 +238,7 @@ export function joinRoom(
 
       room.mobileControllers.push(controller);
 
-      // Notificar al controlador que se ha unido
+      // Notify the controller that you have joined
       socket.emit('controller_joined', {
         roomCode: normalizedRoomCode,
         players: room.players,
@@ -254,7 +248,6 @@ export function joinRoom(
         categoryType: room.categoryType,
       });
 
-      // Notificar a los demás miembros de la sala
       socket.to(normalizedRoomCode).emit('controller_joined', {
         id: socket.id,
         nickname,
@@ -264,7 +257,6 @@ export function joinRoom(
 
       console.log(`${logPrefix} ✅ Mobile controller joined: ${nickname}`);
     } else {
-      // Añadir como jugador regular
       const player: Player = {
         id: socket.id,
         nickname,
@@ -276,7 +268,6 @@ export function joinRoom(
 
       room.players.push(player);
 
-      // Notificar al jugador que se ha unido
       socket.emit('room_joined', {
         roomCode: normalizedRoomCode,
         players: room.players,
@@ -287,7 +278,6 @@ export function joinRoom(
         isHost: false,
       });
 
-      // Notificar a los demás miembros de la sala
       socket.to(normalizedRoomCode).emit('player_joined', player);
 
       console.log(`${logPrefix} ✅ Player joined: ${nickname}`);

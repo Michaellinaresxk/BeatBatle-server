@@ -232,33 +232,47 @@ export function startGame(
   categoryId?: string,
   categoryType?: string
 ): void {
-  console.log('⚠️ Starting game for room:', roomCode);
-  console.log('⚠️ With category:', categoryId, 'type:', categoryType);
+  console.log('🚀 Starting game request:', {
+    roomCode,
+    socketId: socket.id,
+    categoryId,
+    categoryType,
+  });
 
   const room = getRoom(roomCode);
   if (!room) {
-    console.log(`⚠️ Room ${roomCode} not found`);
+    console.error(`❌ Room ${roomCode} not found for starting game`);
     socket.emit('error', { message: 'Sala no encontrada' });
     return;
   }
 
-  if (room.hostId !== socket.id) {
-    console.log('⚠️ Only host can start game');
-    socket.emit('error', { message: 'Solo el host puede iniciar el juego' });
-    return;
-  }
-
+  // Si el juego ya está en progreso, forzarlo de todas formas
   if (room.status !== 'waiting') {
-    console.log('⚠️ Game already started');
-    socket.emit('error', { message: 'El juego ya ha comenzado' });
+    console.log(`⚠️ Game in room ${roomCode} already started, forcing restart`);
+
+    io.to(roomCode).emit('game_started', {
+      roomCode: roomCode,
+      currentRound: room.currentRound || 1,
+      totalRounds: room.gameSettings.totalRounds,
+      category: room.category,
+      categoryType: room.categoryType,
+      forceStart: true,
+    });
+
+    // Force question start anyway
+    setTimeout(() => {
+      console.log(`🔥 Forcing first question start for room ${roomCode}`);
+      startNewQuestion(io, roomCode);
+    }, 1500);
+
     return;
   }
 
-  // Set the game state to playing
+  // Actualizar el estado del juego
   room.status = 'playing';
   room.currentRound = 1;
 
-  // Update category if provided
+  // Actualizar categoría si se proporciona
   if (categoryId) {
     room.category = categoryId;
   }
@@ -267,47 +281,54 @@ export function startGame(
     room.categoryType = categoryType;
   }
 
-  // Evento para el host (quien inició el juego) - incluye skipSelection:false para indicar
-  // que NO debe saltar la pantalla de selección
-  socket.emit('host_game_started', {
+  console.log(`🎮 Game starting in room ${roomCode} with:`, {
+    category: room.category,
+    categoryType: room.categoryType,
+    currentRound: room.currentRound,
+    totalRounds: room.gameSettings.totalRounds,
+  });
+
+  // IMPORTANTE: Asegurar que este evento se emita a TODOS los clientes en la sala
+  io.to(roomCode).emit('game_started', {
+    roomCode: roomCode,
     currentRound: room.currentRound,
     totalRounds: room.gameSettings.totalRounds,
     category: room.category,
     categoryType: room.categoryType,
-    skipSelection: false,
   });
 
-  // Notificar a todos los demás clientes
-  socket.to(roomCode).emit('game_started', {
-    currentRound: room.currentRound,
-    totalRounds: room.gameSettings.totalRounds,
-    category: room.category,
-    categoryType: room.categoryType,
-    skipSelection: false,
-  });
+  console.log(
+    `🎮 Evento game_started emitido para sala ${roomCode} con datos:`,
+    {
+      roomCode: roomCode,
+      currentRound: room.currentRound,
+      category: room.category,
+      categoryType: room.categoryType,
+    }
+  );
 
-  // Start the first question
-  startNewQuestion(io, roomCode);
+  // Iniciar la primera pregunta después de un breve retraso
+  setTimeout(() => {
+    console.log(`⏱️ Starting first question for room ${roomCode}`);
+    startNewQuestion(io, roomCode);
+  }, 1500);
 }
 
-// También en checkAllReady necesitas hacer un cambio similar:
 export function checkAllReady(io: Server, room: Room): boolean {
-  // Verificar si hay controladores móviles y si todos están listos
   const allReady =
     room.mobileControllers.length > 0 &&
     room.mobileControllers.every((c) => c.isReady);
 
-  console.log('⚠️ Todos listos?', allReady, {
+  console.log('⚠️ All ready?', allReady, {
     controllersCount: room.mobileControllers.length,
     readyCount: room.mobileControllers.filter((c) => c.isReady).length,
   });
 
   if (allReady && room.status === 'waiting') {
-    console.log('⚠️ Todos los jugadores listos, iniciando juego!');
+    console.log('⚠️ All players ready, starting the game!');
     room.status = 'playing';
     room.currentRound = 1;
 
-    // Notificar a todos con un evento normal
     io.to(room.roomCode).emit('game_started', {
       currentRound: room.currentRound,
       totalRounds: room.gameSettings.totalRounds,
@@ -315,7 +336,6 @@ export function checkAllReady(io: Server, room: Room): boolean {
       categoryType: room.categoryType,
     });
 
-    // Iniciar primera pregunta
     startNewQuestion(io, room.roomCode);
     return true;
   }
@@ -328,6 +348,12 @@ export function startNewQuestion(io: Server, roomCode: string): void {
   if (!room) {
     console.log(`⚠️ Room ${roomCode} not found for new question`);
     return;
+  }
+
+  // Asegurar que currentRound sea al menos 1
+  if (room.currentRound <= 0) {
+    console.log(`⚠️ Fixing currentRound for room ${roomCode}`);
+    room.currentRound = 1;
   }
 
   console.log(
@@ -343,9 +369,32 @@ export function startNewQuestion(io: Server, roomCode: string): void {
     console.log(`⚠️ Using default questions (no category found)`);
   }
 
+  // Verificar que tenemos preguntas
+  if (!questions || questions.length === 0) {
+    console.error(
+      `❌ No hay preguntas disponibles para la categoría ${room.category}`
+    );
+    io.to(roomCode).emit('error', {
+      message: 'No se encontraron preguntas para esta categoría',
+    });
+    return;
+  }
+
   // Seleccionar una pregunta basada en el round actual
   const questionIndex = (room.currentRound - 1) % questions.length;
+
+  // Verificar que existe una pregunta en ese índice
+  if (!questions[questionIndex]) {
+    console.error(
+      `❌ No se encontró la pregunta en el índice ${questionIndex}`
+    );
+    io.to(roomCode).emit('error', { message: 'Error al cargar la pregunta' });
+    return;
+  }
+
   const questionData = questions[questionIndex];
+
+  console.log(`⚠️ Selected question: ${questionData.question}`);
 
   console.log(`⚠️ Selected question: ${questionData.question}`);
 
@@ -371,7 +420,6 @@ export function startNewQuestion(io: Server, roomCode: string): void {
 
   io.to(roomCode).emit('new_question', questionToSend);
 
-  // Iniciar el temporizador
   let timeRemaining = room.gameSettings.roundTime;
   const timer = setInterval(() => {
     timeRemaining--;
@@ -381,26 +429,21 @@ export function startNewQuestion(io: Server, roomCode: string): void {
       clearInterval(timer);
       console.log(`⚠️ Time's up for question in room ${roomCode}`);
 
-      // Notificar a todos que la pregunta ha terminado
       io.to(roomCode).emit('question_ended', {
         correctAnswer: questionData.correctOptionId,
       });
 
-      // Si no hay controllers móviles, avanzar automáticamente
       if (room.mobileControllers.length === 0) {
-        // Verificar si necesitamos iniciar un nuevo round o terminar el juego
+        // Check if we need to start a new round or end the game
         room.currentRound++;
         if (room.currentRound <= room.gameSettings.totalRounds) {
-          // Iniciar siguiente pregunta después de un delay
           setTimeout(() => {
             startNewQuestion(io, roomCode);
-          }, 5000); // 5 segundos de delay entre preguntas
+          }, 5000);
         } else {
-          // Terminar el juego
           endGame(io, roomCode);
         }
       }
-      // Si hay controllers móviles, esperar a que ellos soliciten la siguiente pregunta
     }
   }, 1000);
 }
