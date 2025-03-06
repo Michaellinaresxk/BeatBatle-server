@@ -11,7 +11,6 @@ import { handleDisconnect } from './helpers/connectionHelpers';
 import { getRoom, getRooms } from '../store/roomStore';
 
 export default function initializeSocket(io: Server) {
-  // Configurar opciones del servidor socket para mejorar la estabilidad
   io.engine.on('connection_error', (err) => {
     console.log('Connection error:', err.message);
   });
@@ -21,7 +20,7 @@ export default function initializeSocket(io: Server) {
       `🔌 Client connected: ${socket.id} from ${socket.handshake.address}`
     );
 
-    // Debug: Registrar todos los eventos recibidos de este socket
+    // Debug: Log all events received from this socket
     socket.onAny((event, ...args) => {
       console.log(
         `[SOCKET RECEIVED] ${event} from ${socket.id}:`,
@@ -29,7 +28,7 @@ export default function initializeSocket(io: Server) {
       );
     });
 
-    // Enviar un evento de conexión exitosa al cliente
+    // Send a successful connection event to the client
     socket.emit('connection_established', {
       message: 'Connected to server',
       socketId: socket.id,
@@ -37,11 +36,9 @@ export default function initializeSocket(io: Server) {
       serverTime: new Date().toISOString(),
     });
 
-    // Información sobre las salas disponibles (solo para depuración)
     const rooms = getRooms();
     console.log(`📋 Rooms available: ${rooms.size}`);
 
-    // Creación de sala
     socket.on(
       'create_room',
       (data: { category?: string; nickname?: string }) => {
@@ -60,18 +57,16 @@ export default function initializeSocket(io: Server) {
       }
     );
 
-    // Unirse a sala como cliente web
     socket.on('join_room', (data: { roomCode: string; nickname: string }) => {
       console.log('🚪 Join room request:', { socketId: socket.id, ...data });
 
-      // Validar código de sala
+      // Validate room code
       if (!data.roomCode || typeof data.roomCode !== 'string') {
         console.error('❌ Invalid room code:', data.roomCode);
         socket.emit('error', { message: 'Invalid room code format' });
         return;
       }
 
-      // Normalizar código de sala (mayúsculas, sin espacios)
       const normalizedRoomCode = data.roomCode.trim().toUpperCase();
 
       const room = getRoom(normalizedRoomCode);
@@ -84,7 +79,7 @@ export default function initializeSocket(io: Server) {
         return;
       }
 
-      // Intentar unirse a la sala
+      // Attempt to join the room
       const success = joinRoom(socket, {
         ...data,
         roomCode: normalizedRoomCode,
@@ -96,7 +91,7 @@ export default function initializeSocket(io: Server) {
       }
     });
 
-    // Unirse a sala como controlador móvil
+    // Join the room as a mobile controller
     socket.on(
       'join_controller',
       (data: { roomCode: string; nickname: string }) => {
@@ -105,14 +100,11 @@ export default function initializeSocket(io: Server) {
           ...data,
         });
 
-        // Validar código de sala
         if (!data.roomCode || typeof data.roomCode !== 'string') {
           console.error('❌ Invalid room code for controller:', data.roomCode);
           socket.emit('error', { message: 'Invalid room code format' });
           return;
         }
-
-        // Normalizar código de sala
         const normalizedRoomCode = data.roomCode.trim().toUpperCase();
 
         const room = getRoom(normalizedRoomCode);
@@ -134,10 +126,8 @@ export default function initializeSocket(io: Server) {
         });
 
         if (success) {
-          // Si es exitoso, emitir un evento específico al host para que navegue a selección
           const room = getRoom(normalizedRoomCode);
           if (room && room.hostId) {
-            // Enviar evento solo al host
             io.to(room.hostId).emit('goto_quiz_selection', {
               roomCode: normalizedRoomCode,
             });
@@ -146,7 +136,6 @@ export default function initializeSocket(io: Server) {
       }
     );
 
-    // Reconectar a sala (después de refrescar página o problemas de red)
     socket.on(
       'reconnect_to_room',
       (data: { roomCode: string; socketId?: string }) => {
@@ -171,14 +160,14 @@ export default function initializeSocket(io: Server) {
           return;
         }
 
-        // Comprobar si el cliente ya existe en la sala
+        // Check if the client already exists in the room
         const isPlayer = room.players.some((p) => p.id === socket.id);
         const isController = room.mobileControllers.some(
           (c) => c.id === socket.id
         );
 
         if (isPlayer || isController) {
-          // El cliente ya está en la sala, enviar el estado actual
+          // Customer is already in the room, send the current status
           socket.join(normalizedRoomCode);
 
           socket.emit('room_rejoined', {
@@ -208,7 +197,6 @@ export default function initializeSocket(io: Server) {
       }
     );
 
-    // Manejo unificado de eventos del controlador
     socket.on('controller_direction', (data) => {
       if (!data || !data.roomCode || !data.direction) return;
 
@@ -217,7 +205,6 @@ export default function initializeSocket(io: Server) {
         `📡 Controller direction: ${data.direction} in room ${normalizedRoomCode}`
       );
 
-      // Reenviar a TODOS los clientes en la sala
       io.to(normalizedRoomCode).emit('controller_direction', {
         direction: data.direction,
         playerId: socket.id,
@@ -230,13 +217,11 @@ export default function initializeSocket(io: Server) {
       const normalizedRoomCode = data.roomCode.trim().toUpperCase();
       console.log(`📡 Controller ENTER in room ${normalizedRoomCode}`);
 
-      // Reenviar a TODOS los clientes en la sala
       io.to(normalizedRoomCode).emit('controller_enter', {
         playerId: socket.id,
       });
     });
 
-    // Comando genérico del controlador (formato unificado)
     socket.on('send_controller_command', (data) => {
       if (!data || !data.roomCode || !data.action) {
         console.error('❌ Datos de comando inválidos');
@@ -253,22 +238,20 @@ export default function initializeSocket(io: Server) {
         return;
       }
 
-      // Encontrar información del controlador
       const controller = room.mobileControllers.find((c) => c.id === socket.id);
       const nickname = controller ? controller.nickname : 'Unknown';
 
       console.log(
-        `📡 Comando del controlador: ${data.action} a sala ${normalizedRoomCode} de ${nickname}`
+        `📡 Controller command: ${data.action} a room ${normalizedRoomCode} of ${nickname}`
       );
 
-      // Reenviar el comando a todos los clientes web en la sala
+      // Resend the command to all web clients in the room
       io.to(normalizedRoomCode).emit('send_controller_command', {
         ...data,
         playerId: socket.id,
         nickname: nickname,
       });
 
-      // También activar eventos específicos para compatibilidad
       if (data.action === 'move' && data.direction) {
         io.to(normalizedRoomCode).emit('controller_direction', {
           direction: data.direction,
@@ -281,10 +264,9 @@ export default function initializeSocket(io: Server) {
       }
     });
 
-    // Manejar cambios de pantalla
     socket.on('screen_changed', (data) => {
       if (!data || !data.roomCode || !data.screen) {
-        console.error('❌ Datos de cambio de pantalla inválidos');
+        console.error('❌ Invalid screen change data');
         return;
       }
 
@@ -299,10 +281,9 @@ export default function initializeSocket(io: Server) {
       }
 
       console.log(
-        `📡 Notificando cambio de pantalla a controladores: ${data.screen} en sala ${normalizedRoomCode}`
+        `📡 Notifying screen change to controllers: ${data.screen} room ${normalizedRoomCode}`
       );
 
-      // Solo enviar a controladores móviles
       room.mobileControllers.forEach((controller) => {
         io.to(controller.id).emit('screen_changed', {
           screen: data.screen,
@@ -311,7 +292,6 @@ export default function initializeSocket(io: Server) {
       });
     });
 
-    // Abandonar sala
     socket.on('leave_room', (data: { roomCode: string }) => {
       console.log('👋 Leave room request:', {
         socketId: socket.id,
@@ -328,7 +308,6 @@ export default function initializeSocket(io: Server) {
       leaveRoom(socket, normalizedRoomCode);
     });
 
-    // Manejo de desconexión
     socket.on('disconnect', () => {
       console.log(`🔌 Client disconnected: ${socket.id}`);
       handleDisconnect(socket);
@@ -357,16 +336,13 @@ export default function initializeSocket(io: Server) {
           return;
         }
 
-        // Actualizar el tipo de quiz en la sala
+        // Update the type of quiz in the room
         room.quizType = quizType;
-
-        // Notificar a todos los clientes en la sala sobre la selección
         io.to(normalizedRoomCode).emit('quiz_type_selected', {
           quizType,
           roomCode: normalizedRoomCode,
         });
 
-        // Enviar evento de navegación separado
         io.to(normalizedRoomCode).emit('goto_category_selection', {
           categoryType: quizType,
           roomCode: normalizedRoomCode,
@@ -378,7 +354,6 @@ export default function initializeSocket(io: Server) {
       }
     );
 
-    // 2. En el manejador de start_game, no navegar automáticamente:
     socket.on(
       'start_game',
       (data: {
@@ -421,22 +396,19 @@ export default function initializeSocket(io: Server) {
           return;
         }
 
-        // Actualizar el estado del juego en el servidor
+        // Update the game status on the server
         room.status = 'playing';
         if (categoryId) room.category = categoryId;
         if (categoryType) room.categoryType = categoryType;
 
-        // Notificar a todos los clientes que el juego ha iniciado
         io.to(normalizedRoomCode).emit('game_started', {
           roomCode: normalizedRoomCode,
           category: room.category,
           categoryType: room.categoryType,
-          // No incluir skipSelection para evitar navegación automática
         });
       }
     );
-
-    // Solicitar pregunta actual
+    // Request current question
     socket.on('request_current_question', (data: { roomCode: string }) => {
       if (!data.roomCode) return;
 
@@ -448,7 +420,6 @@ export default function initializeSocket(io: Server) {
       }
     });
 
-    // Envío de respuesta
     socket.on('submit_answer', (data: { roomCode: string; answer: string }) => {
       console.log('📝 Answer submitted:', data);
 
@@ -462,7 +433,6 @@ export default function initializeSocket(io: Server) {
       submitAnswer(io, socket, normalizedRoomCode, data.answer);
     });
 
-    // Solicitar siguiente pregunta
     socket.on('request_next_question', (data: { roomCode: string }) => {
       if (!data.roomCode) return;
 
@@ -488,7 +458,7 @@ export default function initializeSocket(io: Server) {
       }
     });
 
-    // Cambiar estado "listo"
+    // Change “ready” status
     socket.on(
       'toggle_ready',
       (data: { roomCode: string; isReady: boolean }) => {
@@ -505,7 +475,6 @@ export default function initializeSocket(io: Server) {
           return;
         }
 
-        // Encontrar controlador
         const controllerIndex = room.mobileControllers.findIndex(
           (c) => c.id === socket.id
         );
@@ -517,36 +486,30 @@ export default function initializeSocket(io: Server) {
           return;
         }
 
-        // Actualizar estado listo
         room.mobileControllers[controllerIndex].isReady = isReady;
 
-        // Emitir estado actualizado
         io.to(normalizedRoomCode).emit('player_ready', {
           playerId: socket.id,
           nickname: room.mobileControllers[controllerIndex].nickname,
           isReady: isReady,
         });
 
-        // Verificar si todos están listos
         const allControllersReady =
           room.mobileControllers.length > 0 &&
           room.mobileControllers.every((c) => c.isReady);
 
-        // Si todos están listos, iniciar juego
+        // If everyone is ready, start game
         if (allControllersReady && room.status === 'waiting') {
           console.log(
-            `🚀 Todos los controladores listos, iniciando juego en sala ${normalizedRoomCode}`
+            `🚀 All controllers ready, starting play in room ${normalizedRoomCode}`
           );
 
-          // Cambiar estado del juego
           room.status = 'playing';
 
-          // Notificar a todos los clientes
           io.to(normalizedRoomCode).emit('all_ready', {
             message: 'Todos los jugadores están listos',
           });
 
-          // Este evento debería hacer que los clientes naveguen a la pantalla adecuada
           io.to(normalizedRoomCode).emit('game_started', {
             currentRound: room.currentRound || 1,
             totalRounds: room.gameSettings?.totalRounds || 10,
@@ -557,9 +520,6 @@ export default function initializeSocket(io: Server) {
       }
     );
 
-    // Seleccionar tipo de quiz
-
-    // Seleccionar categoría específica
     socket.on(
       'select_category',
       (data: { roomCode: string; categoryId: string }) => {
@@ -583,10 +543,8 @@ export default function initializeSocket(io: Server) {
           return;
         }
 
-        // Actualizar categoría
         room.category = categoryId;
 
-        // Notificar a todos los miembros de la sala
         io.to(normalizedRoomCode).emit('category_selected', {
           categoryId,
           roomCode: normalizedRoomCode,
@@ -598,7 +556,6 @@ export default function initializeSocket(io: Server) {
       }
     );
 
-    // Actualizar la categoría de la sala
     socket.on(
       'update_room_category',
       (data: {
@@ -628,11 +585,9 @@ export default function initializeSocket(io: Server) {
           return;
         }
 
-        // Actualizar categoría en la sala
         room.categoryType = categoryType;
         room.category = categoryId;
 
-        // Notificar a todos los miembros de la sala
         io.to(normalizedRoomCode).emit('category_updated', {
           categoryType,
           categoryId,

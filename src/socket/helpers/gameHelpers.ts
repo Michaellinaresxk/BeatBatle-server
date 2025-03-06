@@ -267,8 +267,6 @@ export function startGame(
     room.categoryType = categoryType;
   }
 
-  // Evento para el host (quien inició el juego) - incluye skipSelection:false para indicar
-  // que NO debe saltar la pantalla de selección
   socket.emit('host_game_started', {
     currentRound: room.currentRound,
     totalRounds: room.gameSettings.totalRounds,
@@ -277,7 +275,6 @@ export function startGame(
     skipSelection: false,
   });
 
-  // Notificar a todos los demás clientes
   socket.to(roomCode).emit('game_started', {
     currentRound: room.currentRound,
     totalRounds: room.gameSettings.totalRounds,
@@ -286,28 +283,24 @@ export function startGame(
     skipSelection: false,
   });
 
-  // Start the first question
   startNewQuestion(io, roomCode);
 }
 
-// También en checkAllReady necesitas hacer un cambio similar:
 export function checkAllReady(io: Server, room: Room): boolean {
-  // Verificar si hay controladores móviles y si todos están listos
   const allReady =
     room.mobileControllers.length > 0 &&
     room.mobileControllers.every((c) => c.isReady);
 
-  console.log('⚠️ Todos listos?', allReady, {
+  console.log('⚠️ All ready?', allReady, {
     controllersCount: room.mobileControllers.length,
     readyCount: room.mobileControllers.filter((c) => c.isReady).length,
   });
 
   if (allReady && room.status === 'waiting') {
-    console.log('⚠️ Todos los jugadores listos, iniciando juego!');
+    console.log('⚠️ All players ready, starting the game!');
     room.status = 'playing';
     room.currentRound = 1;
 
-    // Notificar a todos con un evento normal
     io.to(room.roomCode).emit('game_started', {
       currentRound: room.currentRound,
       totalRounds: room.gameSettings.totalRounds,
@@ -315,7 +308,6 @@ export function checkAllReady(io: Server, room: Room): boolean {
       categoryType: room.categoryType,
     });
 
-    // Iniciar primera pregunta
     startNewQuestion(io, room.roomCode);
     return true;
   }
@@ -371,7 +363,6 @@ export function startNewQuestion(io: Server, roomCode: string): void {
 
   io.to(roomCode).emit('new_question', questionToSend);
 
-  // Iniciar el temporizador
   let timeRemaining = room.gameSettings.roundTime;
   const timer = setInterval(() => {
     timeRemaining--;
@@ -381,26 +372,21 @@ export function startNewQuestion(io: Server, roomCode: string): void {
       clearInterval(timer);
       console.log(`⚠️ Time's up for question in room ${roomCode}`);
 
-      // Notificar a todos que la pregunta ha terminado
       io.to(roomCode).emit('question_ended', {
         correctAnswer: questionData.correctOptionId,
       });
 
-      // Si no hay controllers móviles, avanzar automáticamente
       if (room.mobileControllers.length === 0) {
-        // Verificar si necesitamos iniciar un nuevo round o terminar el juego
+        // Check if we need to start a new round or end the game
         room.currentRound++;
         if (room.currentRound <= room.gameSettings.totalRounds) {
-          // Iniciar siguiente pregunta después de un delay
           setTimeout(() => {
             startNewQuestion(io, roomCode);
-          }, 5000); // 5 segundos de delay entre preguntas
+          }, 5000);
         } else {
-          // Terminar el juego
           endGame(io, roomCode);
         }
       }
-      // Si hay controllers móviles, esperar a que ellos soliciten la siguiente pregunta
     }
   }, 1000);
 }
@@ -474,7 +460,6 @@ export function endGame(io: Server, roomCode: string): void {
   // Use the status value defined in the Room interface ('ended')
   room.status = 'finished';
 
-  // Prepare results
   const results: GameResult = {};
   room.players.forEach((player) => {
     results[player.id] = {

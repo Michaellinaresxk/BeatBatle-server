@@ -3,7 +3,7 @@ import Room from '../models/Room';
 import Player from '../models/Player';
 
 export class GameController {
-  // Verificar si una sala existe
+  // Check if a room exists
   static async checkRoom(req: Request, res: Response) {
     try {
       const { roomCode } = req.params;
@@ -31,15 +31,12 @@ export class GameController {
       const room = await Room.findOne({ roomCode });
 
       if (!room) {
-        return res.status(404).json({ error: 'Sala no encontrada' });
+        return res.status(404).json({ error: 'Room not found' });
       }
 
       if (room.status !== 'waiting') {
-        return res.status(400).json({ error: 'El juego ya ha comenzado' });
+        return res.status(400).json({ error: 'The game has already started' });
       }
-
-      // En una implementación real, aquí crearías un jugador en la base de datos
-      // Pero para una versión simplificada, solo confirmamos que la sala existe
 
       return res.status(200).json({
         success: true,
@@ -47,12 +44,11 @@ export class GameController {
         status: room.status,
       });
     } catch (error) {
-      console.error('Error al unirse a la sala:', error);
-      return res.status(500).json({ error: 'Error interno del servidor' });
+      console.error('Error joining the room:', error);
+      return res.status(500).json({ error: 'Internal server error' });
     }
   }
 
-  // Obtener estado actual del juego
   static async getGameState(req: Request, res: Response) {
     try {
       const { roomCode } = req.params;
@@ -74,7 +70,7 @@ export class GameController {
     }
   }
 
-  // Obtener ranking de jugadores
+  // Obtain player ranking
   static async getLeaderboard(req: Request, res: Response) {
     try {
       const { roomCode } = req.params;
@@ -94,12 +90,11 @@ export class GameController {
     }
   }
 
-  // Actualizar configuración del juego (solo host)
   static async updateGameSettings(req: Request, res: Response) {
     try {
       const { roomCode } = req.params;
       const { maxPlayers, roundTime, totalRounds } = req.body;
-      const { hostId } = req.headers; // Asumiendo que envías el hostId en los headers
+      const { hostId } = req.headers;
 
       const room = await Room.findOne({ roomCode });
 
@@ -131,7 +126,6 @@ export class GameController {
     }
   }
 
-  // Obtener historial de rondas previas
   static async getRoundHistory(req: Request, res: Response) {
     try {
       const { roomCode } = req.params;
@@ -140,9 +134,6 @@ export class GameController {
       if (!room) {
         return res.status(404).json({ error: 'Room not found' });
       }
-
-      // Aquí podrías implementar la lógica para obtener el historial de rondas
-      // si decides guardarlo en la base de datos
 
       return res.json({
         currentRound: room.currentRound,
