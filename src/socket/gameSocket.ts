@@ -217,52 +217,93 @@ export default function initializeSocket(io: Server) {
       const normalizedRoomCode = data.roomCode.trim().toUpperCase();
       console.log(`📡 Controller ENTER in room ${normalizedRoomCode}`);
 
-      io.to(normalizedRoomCode).emit('controller_enter', {
-        playerId: socket.id,
-      });
-    });
-
-    socket.on('send_controller_command', (data) => {
-      if (!data || !data.roomCode || !data.action) {
-        console.error('❌ Datos de comando inválidos');
-        return;
-      }
-
-      const normalizedRoomCode = data.roomCode.trim().toUpperCase();
+      // Obtener información de la sala
       const room = getRoom(normalizedRoomCode);
-
       if (!room) {
         console.error(
-          `❌ Room ${normalizedRoomCode} not found for controller command`
+          `❌ Room ${normalizedRoomCode} not found for controller_enter`
         );
         return;
       }
 
-      const controller = room.mobileControllers.find((c) => c.id === socket.id);
-      const nickname = controller ? controller.nickname : 'Unknown';
-
-      console.log(
-        `📡 Controller command: ${data.action} a room ${normalizedRoomCode} of ${nickname}`
-      );
-
-      // Resend the command to all web clients in the room
-      io.to(normalizedRoomCode).emit('send_controller_command', {
-        ...data,
-        playerId: socket.id,
-        nickname: nickname,
+      // Debug: Verificar el estado de la sala
+      console.log(`🔍 Room state for ${normalizedRoomCode}:`, {
+        status: room.status,
+        category: room.category,
+        categoryType: room.categoryType,
+        currentRound: room.currentRound,
+        isHost: room.hostId === socket.id,
+        isController: room.mobileControllers.some((c) => c.id === socket.id),
       });
 
-      if (data.action === 'move' && data.direction) {
-        io.to(normalizedRoomCode).emit('controller_direction', {
-          direction: data.direction,
-          playerId: socket.id,
+      // Reenviar el evento a todos en la sala
+      io.to(normalizedRoomCode).emit('controller_enter', {
+        playerId: socket.id,
+      });
+
+      // SOLUCIÓN DE EMERGENCIA: Si hay una categoría, forzar el inicio del juego
+      if (room.category) {
+        console.log(
+          `🚨 INICIO DE EMERGENCIA: Forzando inicio del juego en sala ${normalizedRoomCode}`
+        );
+
+        // Actualizar el estado del juego - SIEMPRE asegurarnos que currentRound sea 1
+        room.status = 'playing';
+        room.currentRound = 1;
+
+        // Si no hay categoryType, poner uno por defecto
+        if (!room.categoryType) {
+          room.categoryType = 'music';
+        }
+
+        // Emitir evento de inicio de juego
+        io.to(normalizedRoomCode).emit('game_started', {
+          roomCode: normalizedRoomCode,
+          currentRound: 1, // Explícitamente 1
+          totalRounds: room.gameSettings?.totalRounds || 10,
+          category: room.category,
+          categoryType: room.categoryType,
+          emergency: true,
         });
-      } else if (data.action === 'confirm_selection') {
-        io.to(normalizedRoomCode).emit('controller_enter', {
-          playerId: socket.id,
-        });
+
+        // Iniciar primera pregunta después de un breve retraso
+        setTimeout(() => {
+          try {
+            console.log(
+              `⏱️ Iniciando primera pregunta para sala ${normalizedRoomCode}`
+            );
+            startNewQuestion(io, normalizedRoomCode);
+          } catch (error) {
+            console.error('❌ Error al iniciar la primera pregunta:', error);
+          }
+        }, 2000);
       }
     });
+
+    socket.on(
+      'send_controller_command',
+      (data: { roomCode: string; action: string; direction?: string }) => {
+        console.log('Controller command received:', data);
+        const { roomCode, action, direction } = data;
+
+        if (!roomCode) {
+          console.error('❌ Missing roomCode in controller command');
+          return;
+        }
+
+        const normalizedRoomCode = roomCode.trim().toUpperCase();
+        const room = getRoom(normalizedRoomCode);
+        if (!room) {
+          console.error(`❌ Room ${normalizedRoomCode} not found`);
+          return;
+        }
+
+        // Reenviar el comando a todos los clientes en la sala, excepto al emisor
+        socket
+          .to(normalizedRoomCode)
+          .emit('controller_command', { action, direction });
+      }
+    );
 
     socket.on('screen_changed', (data) => {
       if (!data || !data.roomCode || !data.screen) {
@@ -343,9 +384,10 @@ export default function initializeSocket(io: Server) {
           roomCode: normalizedRoomCode,
         });
 
-        io.to(normalizedRoomCode).emit('goto_category_selection', {
-          categoryType: quizType,
+        io.to(normalizedRoomCode).emit('category_selection', {
           roomCode: normalizedRoomCode,
+          category: room.category,
+          stage: 'main_category',
         });
 
         console.log(
@@ -361,7 +403,7 @@ export default function initializeSocket(io: Server) {
         categoryId?: string;
         categoryType?: string;
       }) => {
-        console.log('🎮 Start game request:', data);
+        console.log('🔍 start_game solicitado:', data);
 
         if (!data.roomCode) {
           console.error('❌ Missing room code for start game operation');
@@ -391,8 +433,27 @@ export default function initializeSocket(io: Server) {
 
         if (room.status !== 'waiting') {
           console.log(
-            `⚠️ Game in room ${normalizedRoomCode} has already started`
+            `⚠️ Game in room ${normalizedRoomCode} has already started, pero forzando inicio de preguntas`
           );
+
+          // ENVIAR DE TODAS FORMAS EL EVENTO game_started PARA FORZAR NAVEGACIÓN
+          io.to(normalizedRoomCode).emit('game_started', {
+            roomCode: normalizedRoomCode,
+            currentRound: room.currentRound || 1,
+            totalRounds: room.gameSettings?.totalRounds || 10,
+            category: room.category,
+            categoryType: room.categoryType,
+            gameReady: true, // <-- Señal especial
+          });
+
+          // INICIAR PRIMERA PREGUNTA DE TODAS FORMAS
+          setTimeout(() => {
+            console.log(
+              `🔥 Forzando inicio de primera pregunta para sala ${normalizedRoomCode}`
+            );
+            startNewQuestion(io, normalizedRoomCode);
+          }, 2000);
+
           return;
         }
 
@@ -401,13 +462,35 @@ export default function initializeSocket(io: Server) {
         if (categoryId) room.category = categoryId;
         if (categoryType) room.categoryType = categoryType;
 
+        console.log(
+          `🔍 EMITIENDO game_started para sala ${normalizedRoomCode}`,
+          {
+            roomCode: normalizedRoomCode,
+            category: room.category,
+            categoryType: room.categoryType,
+          }
+        );
+
         io.to(normalizedRoomCode).emit('game_started', {
           roomCode: normalizedRoomCode,
           category: room.category,
           categoryType: room.categoryType,
         });
+
+        // Iniciar primera pregunta después de un breve retraso
+        setTimeout(() => {
+          try {
+            console.log(
+              `🔍 Iniciando primera pregunta para sala ${normalizedRoomCode}`
+            );
+            startNewQuestion(io, normalizedRoomCode);
+          } catch (error) {
+            console.error('🔍 Error al iniciar primera pregunta:', error);
+          }
+        }, 2000);
       }
     );
+
     // Request current question
     socket.on('request_current_question', (data: { roomCode: string }) => {
       if (!data.roomCode) return;
@@ -458,7 +541,7 @@ export default function initializeSocket(io: Server) {
       }
     });
 
-    // Change “ready” status
+    // Change "ready" status
     socket.on(
       'toggle_ready',
       (data: { roomCode: string; isReady: boolean }) => {
@@ -511,11 +594,27 @@ export default function initializeSocket(io: Server) {
           });
 
           io.to(normalizedRoomCode).emit('game_started', {
+            roomCode: normalizedRoomCode,
             currentRound: room.currentRound || 1,
             totalRounds: room.gameSettings?.totalRounds || 10,
             category: room.category,
             categoryType: room.categoryType,
           });
+
+          // Iniciar primera pregunta después de un breve retraso
+          setTimeout(() => {
+            try {
+              console.log(
+                `🔍 Iniciando primera pregunta tras all_ready para sala ${normalizedRoomCode}`
+              );
+              startNewQuestion(io, normalizedRoomCode);
+            } catch (error) {
+              console.error(
+                '🔍 Error al iniciar primera pregunta tras all_ready:',
+                error
+              );
+            }
+          }, 2000);
         }
       }
     );
