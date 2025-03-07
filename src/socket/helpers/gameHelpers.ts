@@ -246,7 +246,7 @@ export function startGame(
     return;
   }
 
-  // Si el juego ya está en progreso, forzarlo de todas formas
+  // If the game is already in progress, force it anyway.
   if (room.status !== 'waiting') {
     console.log(`⚠️ Game in room ${roomCode} already started, forcing restart`);
 
@@ -268,11 +268,12 @@ export function startGame(
     return;
   }
 
-  // Actualizar el estado del juego
+  // Update game status
   room.status = 'playing';
   room.currentRound = 1;
 
-  // Actualizar categoría si se proporciona
+  // Update category if provided
+
   if (categoryId) {
     room.category = categoryId;
   }
@@ -288,7 +289,7 @@ export function startGame(
     totalRounds: room.gameSettings.totalRounds,
   });
 
-  // IMPORTANTE: Asegurar que este evento se emita a TODOS los clientes en la sala
+  // IMPORTANT: Ensure that this event is broadcast to ALL customers in the room.
   io.to(roomCode).emit('game_started', {
     roomCode: roomCode,
     currentRound: room.currentRound,
@@ -297,17 +298,14 @@ export function startGame(
     categoryType: room.categoryType,
   });
 
-  console.log(
-    `🎮 Evento game_started emitido para sala ${roomCode} con datos:`,
-    {
-      roomCode: roomCode,
-      currentRound: room.currentRound,
-      category: room.category,
-      categoryType: room.categoryType,
-    }
-  );
+  console.log(`🎮 Game_started event issued for room ${roomCode} with data:`, {
+    roomCode: roomCode,
+    currentRound: room.currentRound,
+    category: room.category,
+    categoryType: room.categoryType,
+  });
 
-  // Iniciar la primera pregunta después de un breve retraso
+  // Start the first question after a short delay.
   setTimeout(() => {
     console.log(`⏱️ Starting first question for room ${roomCode}`);
     startNewQuestion(io, roomCode);
@@ -350,7 +348,7 @@ export function startNewQuestion(io: Server, roomCode: string): void {
     return;
   }
 
-  // Asegurar que currentRound sea al menos 1
+  // Ensure currentRound is at least 1
   if (room.currentRound <= 0) {
     console.log(`⚠️ Fixing currentRound for room ${roomCode}`);
     room.currentRound = 1;
@@ -369,26 +367,26 @@ export function startNewQuestion(io: Server, roomCode: string): void {
     console.log(`⚠️ Using default questions (no category found)`);
   }
 
-  // Verificar que tenemos preguntas
+  // Verify that we have questions
   if (!questions || questions.length === 0) {
     console.error(
-      `❌ No hay preguntas disponibles para la categoría ${room.category}`
+      `❌ No questions available for category ${room.category}`.
     );
     io.to(roomCode).emit('error', {
-      message: 'No se encontraron preguntas para esta categoría',
+      message: 'No questions found for this category',
     });
     return;
   }
 
-  // Seleccionar una pregunta basada en el round actual
+  // Select a question based on the current round
   const questionIndex = (room.currentRound - 1) % questions.length;
 
-  // Verificar que existe una pregunta en ese índice
+  // Verify that there is a question in that index
   if (!questions[questionIndex]) {
     console.error(
-      `❌ No se encontró la pregunta en el índice ${questionIndex}`
+      `❌ Question not found in index ${questionIndex}`.
     );
-    io.to(roomCode).emit('error', { message: 'Error al cargar la pregunta' });
+    io.to(roomCode).emit('error', { message: 'Error loading question' });
     return;
   }
 

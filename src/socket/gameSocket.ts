@@ -298,7 +298,7 @@ export default function initializeSocket(io: Server) {
           return;
         }
 
-        // Reenviar el comando a todos los clientes en la sala, excepto al emisor
+        // Resend the command to all clients in the room, except the sender.
         socket
           .to(normalizedRoomCode)
           .emit('controller_command', { action, direction });
@@ -307,7 +307,7 @@ export default function initializeSocket(io: Server) {
 
     socket.on('screen_changed', (data) => {
       if (!data || !data.roomCode || !data.screen) {
-        console.error('❌ Invalid screen change data');
+        // Resend the command to all clients in the room except the sender
         return;
       }
 
@@ -403,7 +403,7 @@ export default function initializeSocket(io: Server) {
         categoryId?: string;
         categoryType?: string;
       }) => {
-        console.log('🔍 start_game solicitado:', data);
+        console.log('🔍 start_game:', data);
 
         if (!data.roomCode) {
           console.error('❌ Missing room code for start game operation');
@@ -436,20 +436,20 @@ export default function initializeSocket(io: Server) {
             `⚠️ Game in room ${normalizedRoomCode} has already started, pero forzando inicio de preguntas`
           );
 
-          // ENVIAR DE TODAS FORMAS EL EVENTO game_started PARA FORZAR NAVEGACIÓN
+          // SEND THE EVENT game_started ANYWAY TO FORCE NAVIGATION
           io.to(normalizedRoomCode).emit('game_started', {
             roomCode: normalizedRoomCode,
             currentRound: room.currentRound || 1,
             totalRounds: room.gameSettings?.totalRounds || 10,
             category: room.category,
             categoryType: room.categoryType,
-            gameReady: true, // <-- Señal especial
+            gameReady: true,
           });
 
-          // INICIAR PRIMERA PREGUNTA DE TODAS FORMAS
+          // START FIRST QUESTION ANYWAY
           setTimeout(() => {
             console.log(
-              `🔥 Forzando inicio de primera pregunta para sala ${normalizedRoomCode}`
+              `🔥 Forcing start of first question for room ${normalizedRoomCode}`
             );
             startNewQuestion(io, normalizedRoomCode);
           }, 2000);
@@ -463,7 +463,7 @@ export default function initializeSocket(io: Server) {
         if (categoryType) room.categoryType = categoryType;
 
         console.log(
-          `🔍 EMITIENDO game_started para sala ${normalizedRoomCode}`,
+          `🔍 BROADCASTING game_started for living room ${normalizedRoomCode}`,
           {
             roomCode: normalizedRoomCode,
             category: room.category,
@@ -477,7 +477,7 @@ export default function initializeSocket(io: Server) {
           categoryType: room.categoryType,
         });
 
-        // Iniciar primera pregunta después de un breve retraso
+        // Start first question after a short delay
         setTimeout(() => {
           try {
             console.log(
@@ -590,7 +590,7 @@ export default function initializeSocket(io: Server) {
           room.status = 'playing';
 
           io.to(normalizedRoomCode).emit('all_ready', {
-            message: 'Todos los jugadores están listos',
+            message: 'All players are ready',
           });
 
           io.to(normalizedRoomCode).emit('game_started', {
@@ -601,16 +601,16 @@ export default function initializeSocket(io: Server) {
             categoryType: room.categoryType,
           });
 
-          // Iniciar primera pregunta después de un breve retraso
+          // Starting first question after short delay
           setTimeout(() => {
             try {
               console.log(
-                `🔍 Iniciando primera pregunta tras all_ready para sala ${normalizedRoomCode}`
+                `🔍 Starting first question after all_ready for room ${normalizedRoomCode}`
               );
               startNewQuestion(io, normalizedRoomCode);
             } catch (error) {
               console.error(
-                '🔍 Error al iniciar primera pregunta tras all_ready:',
+                '🔍 Error starting first question after all_ready:',
                 error
               );
             }
