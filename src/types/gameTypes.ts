@@ -28,6 +28,8 @@ export interface Room {
   categoryType: string;
   mobileControllers: MobileController[];
   currentQuestion: QuestionData | null;
+  timer?: NodeJS.Timeout;
+  timeRemaining?: number;
 }
 
 export interface GameSettings {

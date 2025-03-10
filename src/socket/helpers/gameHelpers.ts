@@ -348,6 +348,13 @@ export function startNewQuestion(io: Server, roomCode: string): void {
     return;
   }
 
+  // Limpiar cualquier temporizador existente para evitar duplicación
+  if (room.timer) {
+    console.log(`⚠️ Clearing existing timer for room ${roomCode}`);
+    clearInterval(room.timer);
+    room.timer = undefined; // Usar undefined en lugar de null
+  }
+
   // Ensure currentRound is at least 1
   if (room.currentRound <= 0) {
     console.log(`⚠️ Fixing currentRound for room ${roomCode}`);
@@ -390,7 +397,9 @@ export function startNewQuestion(io: Server, roomCode: string): void {
 
   const questionId = uuidv4();
 
-  // Asegurarse de que el formato de la pregunta sea consistente
+  // Establecer un tiempo límite mínimo de 20 segundos para asegurar suficiente tiempo
+  const timeLimit = Math.max(20, room.gameSettings.roundTime || 30);
+
   const questionToSend: QuestionData = {
     question: {
       id: questionId,
@@ -400,29 +409,62 @@ export function startNewQuestion(io: Server, roomCode: string): void {
       totalQuestions: room.gameSettings.totalRounds,
     },
     options: questionData.options,
-    timeLimit: room.gameSettings.roundTime,
+    timeLimit: timeLimit,
   };
 
   // Save current question for reference
   room.currentQuestion = questionToSend;
 
+  // Configurar el tiempo inicial en la sala
+  room.timeRemaining = timeLimit;
+
   console.log(`⚠️ Emitting new_question to room ${roomCode}`);
   console.log(`⚠️ Question data:`, JSON.stringify(questionToSend));
+  console.log(`⚠️ Setting timer for ${room.timeRemaining} seconds`);
 
   // Enviar la pregunta a todos los clientes en la sala
   io.to(roomCode).emit('new_question', questionToSend);
 
-  // Comenzar el temporizador para la pregunta
-  let timeRemaining = room.gameSettings.roundTime;
-  const timer = setInterval(() => {
-    timeRemaining--;
-    io.to(roomCode).emit('timer_update', timeRemaining);
+  // Enviar tiempo inicial explícitamente para sincronizar todos los clientes
+  io.to(roomCode).emit('timer_update', timeLimit);
 
-    if (timeRemaining <= 0) {
-      clearInterval(timer);
+  // IMPORTANTE: Almacenar el momento exacto de inicio para mantener una sincronización precisa
+  const startTime = Date.now();
+  let lastSecondSent = timeLimit;
+
+  // Crear un intervalo preciso de 1 segundo para actualizar el temporizador
+  room.timer = setInterval(() => {
+    // Calcular el tiempo transcurrido desde el inicio en segundos
+    const elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
+
+    // Calcular el tiempo restante basado en el tiempo transcurrido
+    const remainingSeconds = timeLimit - elapsedSeconds;
+
+    // Actualizar el tiempo restante en la sala
+    room.timeRemaining = Math.max(0, remainingSeconds);
+
+    // Solo enviar actualizaciones cuando cambie el segundo
+    if (room.timeRemaining !== lastSecondSent) {
+      lastSecondSent = room.timeRemaining;
+
+      // Registrar con timestamp para depuración
+      const timestamp = new Date().toISOString().substr(11, 8);
+      console.log(
+        `⏱️ [${timestamp}] Room ${roomCode}: timer=${room.timeRemaining}s`
+      );
+
+      // Enviar actualización a todos los clientes
+      io.to(roomCode).emit('timer_update', room.timeRemaining);
+    }
+
+    // Terminar cuando el tiempo llegue a cero
+    if (room.timeRemaining <= 0) {
+      clearInterval(room.timer);
+      room.timer = undefined; // Usar undefined en lugar de null
+
       console.log(`⚠️ Time's up for question in room ${roomCode}`);
 
-      // Asegurarse de que todos reciban el ID de la respuesta correcta
+      // Enviar evento de pregunta terminada con la respuesta correcta
       io.to(roomCode).emit('question_ended', {
         correctAnswer: questionData.correctOptionId,
       });
@@ -439,7 +481,7 @@ export function startNewQuestion(io: Server, roomCode: string): void {
         }
       }
     }
-  }, 1000);
+  }, 1000); // Intervalo de 1 segundo exacto
 }
 
 export function submitAnswer(
@@ -523,6 +565,12 @@ export function submitAnswer(
 export function endGame(io: Server, roomCode: string): void {
   const room = getRoom(roomCode);
   if (!room) return;
+
+  // Limpiar cualquier temporizador existente
+  if (room.timer) {
+    clearInterval(room.timer);
+    room.timer = undefined; // Usar undefined en lugar de null
+  }
 
   // Use the status value defined in the Room interface ('ended')
   room.status = 'finished';

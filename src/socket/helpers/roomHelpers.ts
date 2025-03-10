@@ -311,6 +311,14 @@ export function leaveRoom(socket: Socket, roomCode: string): void {
     (c) => c.id === socket.id
   );
 
+  // Si es el último jugador o controlador, limpiar el temporizador
+  if (room.players.length <= 1 && room.mobileControllers.length <= 1) {
+    if (room.timer) {
+      clearInterval(room.timer);
+      room.timer = undefined; // Usar undefined en lugar de null
+    }
+  }
+
   if (playerIndex !== -1) {
     // Handle player leaving
     const player = room.players[playerIndex];
@@ -348,6 +356,12 @@ export function leaveRoom(socket: Socket, roomCode: string): void {
 
   // Clean up empty rooms
   if (room.players.length === 0 && room.mobileControllers.length === 0) {
+    // Asegurarse de limpiar cualquier temporizador antes de eliminar la sala
+    if (room.timer) {
+      clearInterval(room.timer);
+      room.timer = undefined; // Usar undefined en lugar de null
+    }
+
     getRooms().delete(roomCode);
     console.log(
       `Room ${roomCode} deleted - no players or controllers remaining`
