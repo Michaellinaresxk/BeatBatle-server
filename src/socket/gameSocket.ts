@@ -1,12 +1,6 @@
 import type { Server, Socket } from 'socket.io';
 import { createRoom, joinRoom, leaveRoom } from './helpers/roomHelpers';
-import {
-  startGame,
-  checkAllReady,
-  submitAnswer,
-  startNewQuestion,
-  endGame,
-} from './helpers/gameHelpers';
+import { submitAnswer, startNewQuestion, endGame } from './helpers/gameHelpers';
 import { handleDisconnect } from './helpers/connectionHelpers';
 import { getRoom, getRooms } from '../store/roomStore';
 
@@ -132,6 +126,36 @@ export default function initializeSocket(io: Server) {
               roomCode: normalizedRoomCode,
             });
           }
+
+          // Si el juego ya está en progreso, enviar el evento game_started al controlador
+          // SOLO si la selección está completa
+          if (
+            room &&
+            room.status === 'playing' &&
+            room.category &&
+            room.categoryType
+          ) {
+            console.log(
+              `🎮 Game already in progress, sending game_started to new controller ${socket.id}`
+            );
+            socket.emit('game_started', {
+              roomCode: normalizedRoomCode,
+              currentRound: room.currentRound,
+              totalRounds: room.gameSettings?.totalRounds || 10,
+              category: room.category,
+              categoryType: room.categoryType,
+              gameReady: true,
+            });
+
+            // También enviar la pregunta actual si existe
+            if (room.currentQuestion) {
+              socket.emit('new_question', room.currentQuestion);
+            }
+          } else {
+            console.log(
+              `🎮 Game not ready yet or selection incomplete for controller ${socket.id}`
+            );
+          }
         }
       }
     );
@@ -181,6 +205,24 @@ export default function initializeSocket(io: Server) {
             categoryType: room.categoryType,
             isHost: room.hostId === socket.id,
           });
+
+          // Si el juego ya está en progreso, enviar el evento game_started
+          // SOLO si la selección está completa
+          if (room.status === 'playing' && room.category && room.categoryType) {
+            socket.emit('game_started', {
+              roomCode: normalizedRoomCode,
+              currentRound: room.currentRound,
+              totalRounds: room.gameSettings?.totalRounds || 10,
+              category: room.category,
+              categoryType: room.categoryType,
+              gameReady: true,
+            });
+
+            // También enviar la pregunta actual si existe
+            if (room.currentQuestion) {
+              socket.emit('new_question', room.currentQuestion);
+            }
+          }
 
           console.log(
             `✅ Client ${socket.id} rejoined room ${normalizedRoomCode}`
@@ -241,42 +283,25 @@ export default function initializeSocket(io: Server) {
         playerId: socket.id,
       });
 
-      // SOLUCIÓN DE EMERGENCIA: Si hay una categoría, forzar el inicio del juego
-      if (room.category) {
+      // Si el juego ya está en progreso, enviar el evento game_started al controlador
+      // SOLO si la selección está completa
+      if (room.status === 'playing' && room.category && room.categoryType) {
         console.log(
-          `🚨 INICIO DE EMERGENCIA: Forzando inicio del juego en sala ${normalizedRoomCode}`
+          `🎮 Game already in progress, sending game_started to controller ${socket.id}`
         );
-
-        // Actualizar el estado del juego - SIEMPRE asegurarnos que currentRound sea 1
-        room.status = 'playing';
-        room.currentRound = 1;
-
-        // Si no hay categoryType, poner uno por defecto
-        if (!room.categoryType) {
-          room.categoryType = 'music';
-        }
-
-        // Emitir evento de inicio de juego
-        io.to(normalizedRoomCode).emit('game_started', {
+        socket.emit('game_started', {
           roomCode: normalizedRoomCode,
-          currentRound: 1, // Explícitamente 1
+          currentRound: room.currentRound,
           totalRounds: room.gameSettings?.totalRounds || 10,
           category: room.category,
           categoryType: room.categoryType,
-          emergency: true,
+          gameReady: true,
         });
 
-        // Iniciar primera pregunta después de un breve retraso
-        setTimeout(() => {
-          try {
-            console.log(
-              `⏱️ Iniciando primera pregunta para sala ${normalizedRoomCode}`
-            );
-            startNewQuestion(io, normalizedRoomCode);
-          } catch (error) {
-            console.error('❌ Error al iniciar la primera pregunta:', error);
-          }
-        }, 2000);
+        // También enviar la pregunta actual si existe
+        if (room.currentQuestion) {
+          socket.emit('new_question', room.currentQuestion);
+        }
       }
     });
 
@@ -431,63 +456,79 @@ export default function initializeSocket(io: Server) {
           return;
         }
 
-        if (room.status !== 'waiting') {
-          console.log(
-            `⚠️ Game in room ${normalizedRoomCode} has already started, pero forzando inicio de preguntas`
-          );
-
-          // SEND THE EVENT game_started ANYWAY TO FORCE NAVIGATION
-          io.to(normalizedRoomCode).emit('game_started', {
-            roomCode: normalizedRoomCode,
-            currentRound: room.currentRound || 1,
-            totalRounds: room.gameSettings?.totalRounds || 10,
-            category: room.category,
-            categoryType: room.categoryType,
-            gameReady: true,
+        // Verificar que tengamos categoría y tipo de categoría
+        if (!categoryId && !room.category) {
+          console.error(`❌ Missing category for room ${normalizedRoomCode}`);
+          socket.emit('error', {
+            message: 'Please select a category before starting the game',
           });
+          return;
+        }
 
-          // START FIRST QUESTION ANYWAY
-          setTimeout(() => {
-            console.log(
-              `🔥 Forcing start of first question for room ${normalizedRoomCode}`
-            );
-            startNewQuestion(io, normalizedRoomCode);
-          }, 2000);
-
+        if (!categoryType && !room.categoryType) {
+          console.error(
+            `❌ Missing category type for room ${normalizedRoomCode}`
+          );
+          socket.emit('error', {
+            message: 'Please select a category type before starting the game',
+          });
           return;
         }
 
         // Update the game status on the server
         room.status = 'playing';
+        room.currentRound = 1; // Ensure currentRound is set to 1
         if (categoryId) room.category = categoryId;
         if (categoryType) room.categoryType = categoryType;
 
-        console.log(
-          `🔍 BROADCASTING game_started for living room ${normalizedRoomCode}`,
-          {
+        // Solo enviar game_started si tenemos toda la información necesaria
+        const hasCategory =
+          room.category !== null && room.category !== undefined;
+        const hasCategoryType =
+          room.categoryType !== null && room.categoryType !== undefined;
+
+        if (hasCategory && hasCategoryType) {
+          console.log(
+            `🔍 BROADCASTING game_started for room ${normalizedRoomCode}`,
+            {
+              roomCode: normalizedRoomCode,
+              category: room.category,
+              categoryType: room.categoryType,
+              currentRound: room.currentRound,
+              totalRounds: room.gameSettings?.totalRounds || 10,
+              gameReady: true, // Add this flag to indicate the game is fully ready
+            }
+          );
+
+          // Emit game_started with all necessary data
+          io.to(normalizedRoomCode).emit('game_started', {
             roomCode: normalizedRoomCode,
+            currentRound: room.currentRound,
+            totalRounds: room.gameSettings?.totalRounds || 10,
             category: room.category,
             categoryType: room.categoryType,
-          }
-        );
+            gameReady: true, // This flag will trigger navigation in the mobile app
+          });
 
-        io.to(normalizedRoomCode).emit('game_started', {
-          roomCode: normalizedRoomCode,
-          category: room.category,
-          categoryType: room.categoryType,
-        });
-
-        // Start first question after a short delay
-        setTimeout(() => {
-          try {
-            console.log(
-              `🔍 Iniciando primera pregunta para sala ${normalizedRoomCode}`
-            );
-            startNewQuestion(io, normalizedRoomCode);
-          } catch (error) {
-            console.error('🔍 Error al iniciar primera pregunta:', error);
-          }
-        }, 2000);
+          // Start first question after a short delay
+          setTimeout(() => {
+            try {
+              console.log(
+                `🔍 Starting first question for room ${normalizedRoomCode}`
+              );
+              startNewQuestion(io, normalizedRoomCode);
+            } catch (error) {
+              console.error('🔍 Error starting first question:', error);
+            }
+          }, 2000);
+        } else {
+          console.error(
+            `❌ Cannot start game: missing category or category type for room ${normalizedRoomCode}`
+          );
+          socket.emit('error', {
+            message: 'Cannot start game: missing category or category type',
+          });
+        }
       }
     );
 
@@ -499,7 +540,30 @@ export default function initializeSocket(io: Server) {
       const room = getRoom(normalizedRoomCode);
 
       if (room && room.currentQuestion) {
+        console.log(
+          `📤 Sending current question to ${socket.id} for room ${normalizedRoomCode}`
+        );
         socket.emit('new_question', room.currentQuestion);
+      } else {
+        console.log(
+          `⚠️ No current question available for room ${normalizedRoomCode}`
+        );
+        // Si no hay pregunta actual pero el juego está en progreso, iniciar una nueva pregunta
+        if (
+          room &&
+          room.status === 'playing' &&
+          room.category &&
+          room.categoryType
+        ) {
+          console.log(
+            `🔄 Starting new question for room ${normalizedRoomCode} on request`
+          );
+          startNewQuestion(io, normalizedRoomCode);
+        } else {
+          console.log(
+            `⚠️ Game not ready or selection incomplete for room ${normalizedRoomCode}`
+          );
+        }
       }
     });
 
@@ -530,7 +594,7 @@ export default function initializeSocket(io: Server) {
         return;
       }
 
-      if (room.status === 'playing') {
+      if (room.status === 'playing' && room.category && room.categoryType) {
         room.currentRound++;
 
         if (room.currentRound <= room.gameSettings.totalRounds) {
@@ -538,6 +602,10 @@ export default function initializeSocket(io: Server) {
         } else {
           endGame(io, normalizedRoomCode);
         }
+      } else {
+        console.log(
+          `⚠️ Game not ready or selection incomplete for room ${normalizedRoomCode}`
+        );
       }
     });
 
@@ -582,7 +650,12 @@ export default function initializeSocket(io: Server) {
           room.mobileControllers.every((c) => c.isReady);
 
         // If everyone is ready, start game
-        if (allControllersReady && room.status === 'waiting') {
+        if (
+          allControllersReady &&
+          room.status === 'waiting' &&
+          room.category &&
+          room.categoryType
+        ) {
           console.log(
             `🚀 All controllers ready, starting play in room ${normalizedRoomCode}`
           );
@@ -599,6 +672,7 @@ export default function initializeSocket(io: Server) {
             totalRounds: room.gameSettings?.totalRounds || 10,
             category: room.category,
             categoryType: room.categoryType,
+            gameReady: true,
           });
 
           // Starting first question after short delay

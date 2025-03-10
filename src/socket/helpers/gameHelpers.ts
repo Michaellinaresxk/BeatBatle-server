@@ -369,9 +369,6 @@ export function startNewQuestion(io: Server, roomCode: string): void {
 
   // Verify that we have questions
   if (!questions || questions.length === 0) {
-    console.error(
-      `❌ No questions available for category ${room.category}`.
-    );
     io.to(roomCode).emit('error', {
       message: 'No questions found for this category',
     });
@@ -383,9 +380,6 @@ export function startNewQuestion(io: Server, roomCode: string): void {
 
   // Verify that there is a question in that index
   if (!questions[questionIndex]) {
-    console.error(
-      `❌ Question not found in index ${questionIndex}`.
-    );
     io.to(roomCode).emit('error', { message: 'Error loading question' });
     return;
   }
