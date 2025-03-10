@@ -388,10 +388,9 @@ export function startNewQuestion(io: Server, roomCode: string): void {
 
   console.log(`⚠️ Selected question: ${questionData.question}`);
 
-  console.log(`⚠️ Selected question: ${questionData.question}`);
-
   const questionId = uuidv4();
 
+  // Asegurarse de que el formato de la pregunta sea consistente
   const questionToSend: QuestionData = {
     question: {
       id: questionId,
@@ -410,8 +409,10 @@ export function startNewQuestion(io: Server, roomCode: string): void {
   console.log(`⚠️ Emitting new_question to room ${roomCode}`);
   console.log(`⚠️ Question data:`, JSON.stringify(questionToSend));
 
+  // Enviar la pregunta a todos los clientes en la sala
   io.to(roomCode).emit('new_question', questionToSend);
 
+  // Comenzar el temporizador para la pregunta
   let timeRemaining = room.gameSettings.roundTime;
   const timer = setInterval(() => {
     timeRemaining--;
@@ -421,12 +422,13 @@ export function startNewQuestion(io: Server, roomCode: string): void {
       clearInterval(timer);
       console.log(`⚠️ Time's up for question in room ${roomCode}`);
 
+      // Asegurarse de que todos reciban el ID de la respuesta correcta
       io.to(roomCode).emit('question_ended', {
         correctAnswer: questionData.correctOptionId,
       });
 
+      // Progresión automática si no hay controladores móviles
       if (room.mobileControllers.length === 0) {
-        // Check if we need to start a new round or end the game
         room.currentRound++;
         if (room.currentRound <= room.gameSettings.totalRounds) {
           setTimeout(() => {
@@ -447,22 +449,31 @@ export function submitAnswer(
   answer: string
 ): void {
   const room = getRoom(roomCode);
-  if (!room || room.status !== 'playing') return;
+  if (!room || room.status !== 'playing') {
+    socket.emit('error', {
+      message: 'Room not found or game not in playing state',
+    });
+    return;
+  }
 
   // Check if this is from a mobile controller
   const isMobileController = room.mobileControllers.some(
     (c) => c.id === socket.id
   );
 
-  // Find the current question to check if answer is correct
-  let questions = defaultQuestions;
-  if (room.category && questionsByCategory[room.category]) {
-    questions = questionsByCategory[room.category];
+  // Verificar si tenemos una pregunta actual
+  if (!room.currentQuestion || !room.currentQuestion.question) {
+    socket.emit('error', { message: 'No current question available' });
+    return;
   }
 
-  const questionIndex = (room.currentRound - 1) % questions.length;
-  const currentQuestion = questions[questionIndex];
-  const isCorrect = currentQuestion.correctOptionId === answer;
+  // Obtener la respuesta correcta de la pregunta actual
+  const correctAnswer = room.currentQuestion.question.correctOptionId;
+  const isCorrect = correctAnswer === answer;
+
+  console.log(
+    `Answer submitted by ${socket.id}: ${answer} (Correct: ${isCorrect})`
+  );
 
   if (isMobileController) {
     const controller = room.mobileControllers.find((c) => c.id === socket.id);
@@ -470,7 +481,7 @@ export function submitAnswer(
       // Send result to the controller
       socket.emit('answer_result', {
         correct: isCorrect,
-        correctAnswer: currentQuestion.correctOptionId,
+        correctAnswer: correctAnswer,
       });
 
       // Broadcast to everyone else
@@ -492,6 +503,13 @@ export function submitAnswer(
         player.wrongAnswers += 1;
       }
 
+      // Enviar resultado al jugador
+      socket.emit('answer_result', {
+        correct: isCorrect,
+        correctAnswer: correctAnswer,
+      });
+
+      // Broadcast to everyone else
       io.to(roomCode).emit('player_answered', {
         playerId: player.id,
         nickname: player.nickname,
