@@ -563,6 +563,11 @@ export default function initializeSocket(io: Server) {
           console.log(
             `⚠️ Game not ready or selection incomplete for room ${normalizedRoomCode}`
           );
+          // Notificar al cliente que no hay pregunta disponible
+          socket.emit('error', {
+            message:
+              'No current question available. Please make sure the game has started.',
+          });
         }
       }
     });
@@ -577,6 +582,48 @@ export default function initializeSocket(io: Server) {
       }
 
       const normalizedRoomCode = data.roomCode.trim().toUpperCase();
+      const room = getRoom(normalizedRoomCode);
+
+      if (!room || room.status !== 'playing') {
+        console.error('❌ Room not found or game not in playing state');
+        socket.emit('error', { message: 'Game not in playing state' });
+        return;
+      }
+
+      // Verificar si tenemos pregunta actual
+      if (!room.currentQuestion) {
+        console.error('❌ No current question available');
+        socket.emit('error', { message: 'No current question available' });
+        return;
+      }
+
+      // Obtener la pregunta actual y verificar si la respuesta es correcta
+      const correctAnswer = room.currentQuestion.question.correctOptionId;
+      const isCorrect = correctAnswer === data.answer;
+
+      console.log(
+        `📊 Answer evaluation: ${
+          isCorrect ? 'Correct' : 'Incorrect'
+        } (submitted: ${data.answer}, correct: ${correctAnswer})`
+      );
+
+      // Enviar resultado al controlador que envió la respuesta
+      socket.emit('answer_result', {
+        correct: isCorrect,
+        correctAnswer: correctAnswer,
+      });
+
+      // Notificar a todos en la sala sobre la respuesta
+      const controller = room.mobileControllers.find((c) => c.id === socket.id);
+      if (controller) {
+        io.to(normalizedRoomCode).emit('player_answered', {
+          playerId: socket.id,
+          nickname: controller.nickname,
+          answer: data.answer,
+          isCorrect,
+        });
+      }
+
       submitAnswer(io, socket, normalizedRoomCode, data.answer);
     });
 
@@ -598,14 +645,29 @@ export default function initializeSocket(io: Server) {
         room.currentRound++;
 
         if (room.currentRound <= room.gameSettings.totalRounds) {
-          startNewQuestion(io, normalizedRoomCode);
+          // Reiniciar estados para todos los clientes antes de enviar la nueva pregunta
+          io.to(normalizedRoomCode).emit('reset_question_state');
+
+          // Pequeña pausa antes de enviar la nueva pregunta
+          setTimeout(() => {
+            console.log(
+              `🔄 Starting question ${room.currentRound} for room ${normalizedRoomCode}`
+            );
+            startNewQuestion(io, normalizedRoomCode);
+          }, 500);
         } else {
+          console.log(
+            `🏁 Ending game for room ${normalizedRoomCode} - all questions completed`
+          );
           endGame(io, normalizedRoomCode);
         }
       } else {
         console.log(
           `⚠️ Game not ready or selection incomplete for room ${normalizedRoomCode}`
         );
+        socket.emit('error', {
+          message: 'Game not in playing state or missing category information',
+        });
       }
     });
 
