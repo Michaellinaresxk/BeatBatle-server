@@ -520,10 +520,24 @@ export function submitAnswer(
   if (isMobileController) {
     const controller = room.mobileControllers.find((c) => c.id === socket.id);
     if (controller) {
-      // Send result to the controller
+      // Actualizar puntuación del controlador - NUEVO
+      if (!controller.score) controller.score = 0;
+      if (isCorrect) {
+        controller.score += 1; // Suma exactamente 1 punto por respuesta correcta
+        if (!controller.correctAnswers) controller.correctAnswers = 0;
+        controller.correctAnswers += 1;
+      } else {
+        if (!controller.wrongAnswers) controller.wrongAnswers = 0;
+        controller.wrongAnswers += 1;
+      }
+
+      // Send result to the controller with updated score
       socket.emit('answer_result', {
         correct: isCorrect,
         correctAnswer: correctAnswer,
+        score: controller.score, // Enviar la puntuación actualizada
+        totalCorrect: controller.correctAnswers,
+        totalWrong: controller.wrongAnswers,
       });
 
       // Broadcast to everyone else
@@ -532,6 +546,7 @@ export function submitAnswer(
         nickname: controller.nickname,
         answer,
         isCorrect,
+        score: controller.score, // Incluir puntuación en el broadcast
       });
     }
   } else {
@@ -539,16 +554,19 @@ export function submitAnswer(
     if (player) {
       // Update player score if answer is correct
       if (isCorrect) {
-        player.score += 100;
+        player.score += 1; // Suma exactamente 1 punto por respuesta correcta
         player.correctAnswers += 1;
       } else {
         player.wrongAnswers += 1;
       }
 
-      // Enviar resultado al jugador
+      // Enviar resultado al jugador con puntuación actualizada
       socket.emit('answer_result', {
         correct: isCorrect,
         correctAnswer: correctAnswer,
+        score: player.score,
+        totalCorrect: player.correctAnswers,
+        totalWrong: player.wrongAnswers,
       });
 
       // Broadcast to everyone else
@@ -557,11 +575,11 @@ export function submitAnswer(
         nickname: player.nickname,
         answer,
         isCorrect,
+        score: player.score, // Incluir puntuación en el broadcast
       });
     }
   }
 }
-
 export function endGame(io: Server, roomCode: string): void {
   const room = getRoom(roomCode);
   if (!room) return;
@@ -569,7 +587,7 @@ export function endGame(io: Server, roomCode: string): void {
   // Limpiar cualquier temporizador existente
   if (room.timer) {
     clearInterval(room.timer);
-    room.timer = undefined; // Usar undefined en lugar de null
+    room.timer = undefined;
   }
 
   // Use the status value defined in the Room interface ('ended')
@@ -577,6 +595,8 @@ export function endGame(io: Server, roomCode: string): void {
 
   // Prepare results
   const results: GameResult = {};
+
+  // Agregar jugadores regulares
   room.players.forEach((player) => {
     results[player.id] = {
       nickname: player.nickname,
@@ -588,16 +608,17 @@ export function endGame(io: Server, roomCode: string): void {
 
   // Also include mobile controllers in results
   room.mobileControllers.forEach((controller) => {
-    // We don't track scores for controllers in this implementation
-    // but we could add that feature
+    // Asegurarse de que existan los datos de puntuación
     results[controller.id] = {
       nickname: controller.nickname,
-      score: 0,
-      correctAnswers: 0,
-      totalAnswers: 0,
+      score: controller.score || 0, // Usar 0 como valor predeterminado
+      correctAnswers: controller.correctAnswers || 0,
+      totalAnswers:
+        (controller.correctAnswers || 0) + (controller.wrongAnswers || 0),
     };
   });
 
+  // Enviar resultados a todos los clientes
   io.to(roomCode).emit('game_ended', {
     results,
   });
