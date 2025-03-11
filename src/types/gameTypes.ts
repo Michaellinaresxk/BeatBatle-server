@@ -11,6 +11,9 @@ export interface MobileController {
   id: string;
   nickname: string;
   isReady: boolean;
+  score?: number; // Agregar score
+  correctAnswers?: number; // Agregar contador de respuestas correctas
+  wrongAnswers?: number; // Agregar contador de respuestas incorrectas
 }
 
 export type RoomStatus = 'waiting' | 'playing' | 'finished';
