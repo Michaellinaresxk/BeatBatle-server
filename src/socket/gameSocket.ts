@@ -3,6 +3,7 @@ import { createRoom, joinRoom, leaveRoom } from './helpers/roomHelpers';
 import { submitAnswer, startNewQuestion, endGame } from './helpers/gameHelpers';
 import { handleDisconnect } from './helpers/connectionHelpers';
 import { getRoom, getRooms } from '../store/roomStore';
+import { GameResult } from '../types/gameTypes';
 
 export default function initializeSocket(io: Server) {
   io.engine.on('connection_error', (err) => {
@@ -834,5 +835,72 @@ export default function initializeSocket(io: Server) {
         );
       }
     );
+
+    socket.on('request_game_results', (data) => {
+      console.log('Game results requested for room:', data);
+
+      if (!data || !data.roomCode) {
+        console.error('❌ Missing room code for game results request');
+        socket.emit('error', { message: 'Missing room code' });
+        return;
+      }
+
+      const normalizedRoomCode = data.roomCode.trim().toUpperCase();
+      const room = getRoom(normalizedRoomCode);
+
+      if (!room) {
+        console.error(
+          `❌ Room ${normalizedRoomCode} not found for game results request`
+        );
+        socket.emit('error', { message: 'Room not found' });
+        return;
+      }
+
+      // Definir el tipo de results explícitamente para evitar errores TypeScript
+      const results: Record<
+        string,
+        {
+          nickname: string;
+          score: number;
+          correctAnswers: number;
+          totalAnswers: number;
+        }
+      > = {};
+
+      // Añadir jugadores regulares
+      room.players.forEach((player) => {
+        results[player.id] = {
+          nickname: player.nickname,
+          score: player.score || 0,
+          correctAnswers: player.correctAnswers || 0,
+          totalAnswers:
+            (player.correctAnswers || 0) + (player.wrongAnswers || 0),
+        };
+      });
+
+      // Añadir controladores móviles
+      room.mobileControllers.forEach((controller) => {
+        // Asegurarse de que existan los datos de puntuación
+        results[controller.id] = {
+          nickname: controller.nickname,
+          score: controller.score || 0,
+          correctAnswers: controller.correctAnswers || 0,
+          totalAnswers:
+            (controller.correctAnswers || 0) + (controller.wrongAnswers || 0),
+        };
+      });
+
+      console.log(`Sending game results for room ${normalizedRoomCode}:`, {
+        resultsCount: Object.keys(results).length,
+        playerCount: room.players.length,
+        mobileControllersCount: room.mobileControllers.length,
+      });
+
+      // Enviar resultados solo al cliente que los solicitó
+      socket.emit('game_results', {
+        results,
+        roomCode: normalizedRoomCode,
+      });
+    });
   });
 }
