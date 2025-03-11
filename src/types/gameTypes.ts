@@ -92,7 +92,6 @@ export interface GameResult {
     totalAnswers: number;
   };
 }
-
 export interface QuestionData {
   question: {
     id: string;
@@ -103,4 +102,13 @@ export interface QuestionData {
   };
   options: any; // Replace with actual option type
   timeLimit: number;
+}
+
+export interface MobileController {
+  id: string;
+  nickname: string;
+  isReady: boolean;
+  score?: number;
+  correctAnswers?: number;
+  wrongAnswers?: number;
 }

@@ -520,22 +520,31 @@ export function submitAnswer(
   if (isMobileController) {
     const controller = room.mobileControllers.find((c) => c.id === socket.id);
     if (controller) {
-      // Actualizar puntuación del controlador - NUEVO
-      if (!controller.score) controller.score = 0;
+      // Inicializar propiedades si no existen
+      if (controller.score === undefined) controller.score = 0;
+      if (controller.correctAnswers === undefined)
+        controller.correctAnswers = 0;
+      if (controller.wrongAnswers === undefined) controller.wrongAnswers = 0;
+
       if (isCorrect) {
         controller.score += 1; // Suma exactamente 1 punto por respuesta correcta
-        if (!controller.correctAnswers) controller.correctAnswers = 0;
         controller.correctAnswers += 1;
       } else {
-        if (!controller.wrongAnswers) controller.wrongAnswers = 0;
         controller.wrongAnswers += 1;
       }
+
+      // Registrar la puntuación para depuración
+      console.log(`Controller ${controller.nickname} score updated:`, {
+        score: controller.score,
+        correctAnswers: controller.correctAnswers,
+        wrongAnswers: controller.wrongAnswers,
+      });
 
       // Send result to the controller with updated score
       socket.emit('answer_result', {
         correct: isCorrect,
         correctAnswer: correctAnswer,
-        score: controller.score, // Enviar la puntuación actualizada
+        score: controller.score,
         totalCorrect: controller.correctAnswers,
         totalWrong: controller.wrongAnswers,
       });
@@ -546,19 +555,30 @@ export function submitAnswer(
         nickname: controller.nickname,
         answer,
         isCorrect,
-        score: controller.score, // Incluir puntuación en el broadcast
+        score: controller.score,
       });
     }
   } else {
     const player = room.players.find((p) => p.id === socket.id);
     if (player) {
-      // Update player score if answer is correct
+      // Inicializar propiedades si no existen
+      if (player.score === undefined) player.score = 0;
+      if (player.correctAnswers === undefined) player.correctAnswers = 0;
+      if (player.wrongAnswers === undefined) player.wrongAnswers = 0;
+
       if (isCorrect) {
         player.score += 1; // Suma exactamente 1 punto por respuesta correcta
         player.correctAnswers += 1;
       } else {
         player.wrongAnswers += 1;
       }
+
+      // Registrar la puntuación para depuración
+      console.log(`Player ${player.nickname} score updated:`, {
+        score: player.score,
+        correctAnswers: player.correctAnswers,
+        wrongAnswers: player.wrongAnswers,
+      });
 
       // Enviar resultado al jugador con puntuación actualizada
       socket.emit('answer_result', {
@@ -575,7 +595,7 @@ export function submitAnswer(
         nickname: player.nickname,
         answer,
         isCorrect,
-        score: player.score, // Incluir puntuación en el broadcast
+        score: player.score,
       });
     }
   }
@@ -593,16 +613,47 @@ export function endGame(io: Server, roomCode: string): void {
   // Use the status value defined in the Room interface ('ended')
   room.status = 'finished';
 
-  // Prepare results
-  const results: GameResult = {};
+  // Prepare results with explicit type
+  const results: Record<
+    string,
+    {
+      nickname: string;
+      score: number;
+      correctAnswers: number;
+      totalAnswers: number;
+    }
+  > = {};
+
+  // Log antes de crear los resultados
+  console.log(
+    `🏆 Room ${roomCode} players before creating results:`,
+    room.players.map((p) => ({
+      id: p.id,
+      nickname: p.nickname,
+      score: p.score || 0,
+      correctAnswers: p.correctAnswers || 0,
+      wrongAnswers: p.wrongAnswers || 0,
+    }))
+  );
+
+  console.log(
+    `🏆 Room ${roomCode} controllers before creating results:`,
+    room.mobileControllers.map((c) => ({
+      id: c.id,
+      nickname: c.nickname,
+      score: c.score || 0,
+      correctAnswers: c.correctAnswers || 0,
+      wrongAnswers: c.wrongAnswers || 0,
+    }))
+  );
 
   // Agregar jugadores regulares
   room.players.forEach((player) => {
     results[player.id] = {
       nickname: player.nickname,
-      score: player.score,
-      correctAnswers: player.correctAnswers,
-      totalAnswers: player.correctAnswers + player.wrongAnswers,
+      score: player.score || 0,
+      correctAnswers: player.correctAnswers || 0,
+      totalAnswers: (player.correctAnswers || 0) + (player.wrongAnswers || 0),
     };
   });
 
@@ -611,15 +662,48 @@ export function endGame(io: Server, roomCode: string): void {
     // Asegurarse de que existan los datos de puntuación
     results[controller.id] = {
       nickname: controller.nickname,
-      score: controller.score || 0, // Usar 0 como valor predeterminado
+      score: controller.score || 0,
       correctAnswers: controller.correctAnswers || 0,
       totalAnswers:
         (controller.correctAnswers || 0) + (controller.wrongAnswers || 0),
     };
   });
 
+  // Registrar información detallada para depuración
+  console.log(`🏆 Game ended in room ${roomCode} with results:`, {
+    playersCount: room.players.length,
+    controllersCount: room.mobileControllers.length,
+    resultsCount: Object.keys(results).length,
+  });
+
+  // Log individual player results
+  Object.entries(results).forEach(([playerId, playerResult]) => {
+    console.log(
+      `🏆 Player ${playerResult.nickname} (${playerId}) result:`,
+      playerResult
+    );
+  });
+
   // Enviar resultados a todos los clientes
   io.to(roomCode).emit('game_ended', {
     results,
+  });
+
+  // También emitir un evento específico para los players y otro para los controllers
+  room.players.forEach((player) => {
+    io.to(player.id).emit('your_game_result', {
+      score: player.score || 0,
+      correctAnswers: player.correctAnswers || 0,
+      totalAnswers: (player.correctAnswers || 0) + (player.wrongAnswers || 0),
+    });
+  });
+
+  room.mobileControllers.forEach((controller) => {
+    io.to(controller.id).emit('your_game_result', {
+      score: controller.score || 0,
+      correctAnswers: controller.correctAnswers || 0,
+      totalAnswers:
+        (controller.correctAnswers || 0) + (controller.wrongAnswers || 0),
+    });
   });
 }
