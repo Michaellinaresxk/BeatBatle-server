@@ -348,11 +348,20 @@ export function startNewQuestion(io: Server, roomCode: string): void {
     return;
   }
 
-  // Limpiar cualquier temporizador existente para evitar duplicación
+  // Reset answer flags for all players and controllers
+  room.players.forEach((player) => {
+    player.hasAnswered = false;
+  });
+
+  room.mobileControllers.forEach((controller) => {
+    controller.hasAnswered = false;
+  });
+
+  // Clear any existing timer to avoid duplication
   if (room.timer) {
     console.log(`⚠️ Clearing existing timer for room ${roomCode}`);
     clearInterval(room.timer);
-    room.timer = undefined; // Usar undefined en lugar de null
+    room.timer = undefined;
   }
 
   // Ensure currentRound is at least 1
@@ -397,7 +406,7 @@ export function startNewQuestion(io: Server, roomCode: string): void {
 
   const questionId = uuidv4();
 
-  // Establecer un tiempo límite mínimo de 20 segundos para asegurar suficiente tiempo
+  // Set a minimum time limit of 20 seconds to ensure enough time
   const timeLimit = Math.max(20, room.gameSettings.roundTime || 30);
 
   const questionToSend: QuestionData = {
@@ -415,75 +424,66 @@ export function startNewQuestion(io: Server, roomCode: string): void {
   // Save current question for reference
   room.currentQuestion = questionToSend;
 
-  // Configurar el tiempo inicial en la sala
+  // Set the initial time in the room
   room.timeRemaining = timeLimit;
 
   console.log(`⚠️ Emitting new_question to room ${roomCode}`);
-  console.log(`⚠️ Question data:`, JSON.stringify(questionToSend));
   console.log(`⚠️ Setting timer for ${room.timeRemaining} seconds`);
 
-  // Enviar la pregunta a todos los clientes en la sala
+  // Send the question to all clients in the room
   io.to(roomCode).emit('new_question', questionToSend);
 
-  // Enviar tiempo inicial explícitamente para sincronizar todos los clientes
+  // Send initial time explicitly to synchronize all clients
   io.to(roomCode).emit('timer_update', timeLimit);
 
-  // IMPORTANTE: Almacenar el momento exacto de inicio para mantener una sincronización precisa
+  // Store the exact start time for precise synchronization
   const startTime = Date.now();
   let lastSecondSent = timeLimit;
 
-  // Crear un intervalo preciso de 1 segundo para actualizar el temporizador
+  // Create a precise 1-second interval to update the timer
   room.timer = setInterval(() => {
-    // Calcular el tiempo transcurrido desde el inicio en segundos
+    // Calculate elapsed time since start in seconds
     const elapsedSeconds = Math.floor((Date.now() - startTime) / 1000);
 
-    // Calcular el tiempo restante basado en el tiempo transcurrido
+    // Calculate remaining time based on elapsed time
     const remainingSeconds = timeLimit - elapsedSeconds;
 
-    // Actualizar el tiempo restante en la sala
+    // Update the remaining time in the room
     room.timeRemaining = Math.max(0, remainingSeconds);
 
-    // Solo enviar actualizaciones cuando cambie el segundo
+    // Only send updates when the second changes
     if (room.timeRemaining !== lastSecondSent) {
       lastSecondSent = room.timeRemaining;
 
-      // Registrar con timestamp para depuración
+      // Log with timestamp for debugging
       const timestamp = new Date().toISOString().substr(11, 8);
       console.log(
         `⏱️ [${timestamp}] Room ${roomCode}: timer=${room.timeRemaining}s`
       );
 
-      // Enviar actualización a todos los clientes
+      // Send update to all clients
       io.to(roomCode).emit('timer_update', room.timeRemaining);
     }
 
-    // Terminar cuando el tiempo llegue a cero
+    // End when time reaches zero
     if (room.timeRemaining <= 0) {
       clearInterval(room.timer);
-      room.timer = undefined; // Usar undefined en lugar de null
+      room.timer = undefined;
 
       console.log(`⚠️ Time's up for question in room ${roomCode}`);
 
-      // Enviar evento de pregunta terminada con la respuesta correcta
-      io.to(roomCode).emit('question_ended', {
-        correctAnswer: questionData.correctOptionId,
-      });
-
-      // Progresión automática si no hay controladores móviles
-      if (room.mobileControllers.length === 0) {
-        room.currentRound++;
-        if (room.currentRound <= room.gameSettings.totalRounds) {
-          setTimeout(() => {
-            startNewQuestion(io, roomCode);
-          }, 5000);
-        } else {
-          endGame(io, roomCode);
-        }
+      // Make sure we have the current question and send question_ended with correct answer
+      if (room.currentQuestion && room.currentQuestion.question) {
+        io.to(roomCode).emit('question_ended', {
+          correctAnswer: room.currentQuestion.question.correctOptionId,
+          timeUp: true,
+        });
       }
-    }
-  }, 1000); // Intervalo de 1 segundo exacto
-}
 
+      // Handle automatic progression if needed
+    }
+  }, 1000); // Exact 1-second interval
+}
 export function submitAnswer(
   io: Server,
   socket: Socket,
@@ -498,18 +498,13 @@ export function submitAnswer(
     return;
   }
 
-  // Check if this is from a mobile controller
-  const isMobileController = room.mobileControllers.some(
-    (c) => c.id === socket.id
-  );
-
-  // Verificar si tenemos una pregunta actual
+  // Verify we have a current question
   if (!room.currentQuestion || !room.currentQuestion.question) {
     socket.emit('error', { message: 'No current question available' });
     return;
   }
 
-  // Obtener la respuesta correcta de la pregunta actual
+  // Get the correct answer from the current question
   const correctAnswer = room.currentQuestion.question.correctOptionId;
   const isCorrect = correctAnswer === answer;
 
@@ -517,70 +512,78 @@ export function submitAnswer(
     `Answer submitted by ${socket.id}: ${answer} (Correct: ${isCorrect})`
   );
 
+  // Check if this is from a mobile controller
+  const isMobileController = room.mobileControllers.some(
+    (c) => c.id === socket.id
+  );
+
   if (isMobileController) {
     const controller = room.mobileControllers.find((c) => c.id === socket.id);
     if (controller) {
-      // Inicializar propiedades si no existen
-      if (controller.score === undefined) controller.score = 0;
-      if (controller.correctAnswers === undefined)
-        controller.correctAnswers = 0;
-      if (controller.wrongAnswers === undefined) controller.wrongAnswers = 0;
+      // Initialize properties if they don't exist
+      controller.score = controller.score ?? 0;
+      controller.correctAnswers = controller.correctAnswers ?? 0;
+      controller.wrongAnswers = controller.wrongAnswers ?? 0;
+
+      // Mark this controller as having answered
+      controller.hasAnswered = true;
 
       if (isCorrect) {
-        controller.score += 1; // Suma exactamente 1 punto por respuesta correcta
+        controller.score += 1;
         controller.correctAnswers += 1;
       } else {
         controller.wrongAnswers += 1;
       }
 
-      // Registrar la puntuación para depuración
-      console.log(`Controller ${controller.nickname} score updated:`, {
-        score: controller.score,
-        correctAnswers: controller.correctAnswers,
-        wrongAnswers: controller.wrongAnswers,
-      });
-
-      // Send result to the controller with updated score
+      // Send result ONLY to the player who answered
       socket.emit('answer_result', {
         correct: isCorrect,
-        correctAnswer: correctAnswer,
         score: controller.score,
         totalCorrect: controller.correctAnswers,
         totalWrong: controller.wrongAnswers,
       });
 
-      // Broadcast to everyone else
+      // Notify everyone else that a player has answered WITHOUT revealing correctness
       io.to(roomCode).emit('player_answered', {
         playerId: socket.id,
         nickname: controller.nickname,
         answer,
-        isCorrect,
         score: controller.score,
       });
+
+      // Check if all controllers have answered
+      const allControllersAnswered =
+        room.mobileControllers.length > 0 &&
+        room.mobileControllers.every((c) => c.hasAnswered === true);
+
+      // If all have answered, end the question
+      if (allControllersAnswered) {
+        console.log(
+          `All controllers have answered in room ${roomCode}. Ending question...`
+        );
+
+        // Emit question_ended with correctAnswer to all clients
+        io.to(roomCode).emit('question_ended', {
+          correctAnswer: correctAnswer,
+          allAnswered: true,
+        });
+      }
     }
   } else {
+    // Similar logic for web players
     const player = room.players.find((p) => p.id === socket.id);
     if (player) {
-      // Inicializar propiedades si no existen
-      if (player.score === undefined) player.score = 0;
-      if (player.correctAnswers === undefined) player.correctAnswers = 0;
-      if (player.wrongAnswers === undefined) player.wrongAnswers = 0;
+      // Mark this player as having answered
+      player.hasAnswered = true;
 
       if (isCorrect) {
-        player.score += 1; // Suma exactamente 1 punto por respuesta correcta
+        player.score += 1;
         player.correctAnswers += 1;
       } else {
         player.wrongAnswers += 1;
       }
 
-      // Registrar la puntuación para depuración
-      console.log(`Player ${player.nickname} score updated:`, {
-        score: player.score,
-        correctAnswers: player.correctAnswers,
-        wrongAnswers: player.wrongAnswers,
-      });
-
-      // Enviar resultado al jugador con puntuación actualizada
+      // Send result ONLY to the player who answered
       socket.emit('answer_result', {
         correct: isCorrect,
         correctAnswer: correctAnswer,
@@ -589,17 +592,50 @@ export function submitAnswer(
         totalWrong: player.wrongAnswers,
       });
 
-      // Broadcast to everyone else
+      // Notify everyone else that a player has answered WITHOUT revealing correctness
       io.to(roomCode).emit('player_answered', {
         playerId: player.id,
         nickname: player.nickname,
         answer,
-        isCorrect,
         score: player.score,
       });
+
+      // Check if all players have answered
+      const allPlayersAnswered =
+        room.players.length > 0 &&
+        room.players.every((p) => p.hasAnswered === true);
+
+      // If all have answered, end the question
+      if (allPlayersAnswered) {
+        console.log(
+          `All players have answered in room ${roomCode}. Ending question...`
+        );
+
+        // Emit question_ended with correctAnswer to all clients
+        io.to(roomCode).emit('question_ended', {
+          correctAnswer: correctAnswer,
+          allAnswered: true,
+        });
+      }
     }
   }
+  const allParticipantsAnswered =
+    (room.players.length > 0 || room.mobileControllers.length > 0) &&
+    room.players.every((p) => p.hasAnswered === true) &&
+    room.mobileControllers.every((c) => c.hasAnswered === true);
+
+  if (allParticipantsAnswered) {
+    console.log(
+      `All participants have answered in room ${roomCode}. Ending question...`
+    );
+
+    io.to(roomCode).emit('question_ended', {
+      correctAnswer: correctAnswer,
+      allAnswered: true,
+    });
+  }
 }
+
 export function endGame(io: Server, roomCode: string): void {
   const room = getRoom(roomCode);
   if (!room) return;

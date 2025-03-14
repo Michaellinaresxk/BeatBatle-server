@@ -5,15 +5,17 @@ export interface Player {
   score: number;
   correctAnswers: number;
   wrongAnswers: number;
+  hasAnswered?: boolean; // Added to track if player has answered current question
 }
 
 export interface MobileController {
   id: string;
   nickname: string;
   isReady: boolean;
-  score?: number; // Agregar score
-  correctAnswers?: number; // Agregar contador de respuestas correctas
-  wrongAnswers?: number; // Agregar contador de respuestas incorrectas
+  score?: number;
+  correctAnswers?: number;
+  wrongAnswers?: number;
+  hasAnswered?: boolean; // Added to track if controller has answered current question
 }
 
 export type RoomStatus = 'waiting' | 'playing' | 'finished';
@@ -22,7 +24,7 @@ export interface Room {
   quizType: string;
   roomCode: string;
   hostId: string;
-  status: 'waiting' | 'playing' | 'finished';
+  status: RoomStatus;
   players: Player[];
   gameSettings: GameSettings;
   currentRound: number;
@@ -39,15 +41,6 @@ export interface GameSettings {
   maxPlayers: number;
   roundTime: number;
   totalRounds: number;
-}
-
-export interface Player {
-  id: string;
-  nickname: string;
-  isHost: boolean;
-  score: number;
-  correctAnswers: number;
-  wrongAnswers: number;
 }
 
 export interface Question {
@@ -69,7 +62,7 @@ export interface QuizQuestion {
     D: string;
   };
   correctOptionId: string;
-  audioUrl?: string; // Campo opcional
+  audioUrl?: string;
 }
 
 export interface Option {
@@ -92,6 +85,7 @@ export interface GameResult {
     totalAnswers: number;
   };
 }
+
 export interface QuestionData {
   question: {
     id: string;
@@ -100,15 +94,6 @@ export interface QuestionData {
     order: number;
     totalQuestions: number;
   };
-  options: any; // Replace with actual option type
+  options: { [key: string]: string } | Option[]; // Support both formats
   timeLimit: number;
-}
-
-export interface MobileController {
-  id: string;
-  nickname: string;
-  isReady: boolean;
-  score?: number;
-  correctAnswers?: number;
-  wrongAnswers?: number;
 }
