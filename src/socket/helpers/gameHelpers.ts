@@ -341,6 +341,153 @@ export function checkAllReady(io: Server, room: Room): boolean {
   return false;
 }
 
+export function submitAnswer(
+  io: Server,
+  socket: Socket,
+  roomCode: string,
+  answer: string
+): void {
+  const room = getRoom(roomCode);
+  if (!room || room.status !== 'playing') {
+    socket.emit('error', {
+      message: 'Room not found or game not in playing state',
+    });
+    return;
+  }
+
+  // Verificar si tenemos una pregunta actual
+  if (!room.currentQuestion || !room.currentQuestion.question) {
+    socket.emit('error', { message: 'No current question available' });
+    return;
+  }
+
+  // Obtener la respuesta correcta de la pregunta actual
+  const correctAnswer = room.currentQuestion.question.correctOptionId;
+  const isCorrect = correctAnswer === answer;
+
+  console.log(
+    `Answer submitted by ${socket.id}: ${answer} (Correct: ${isCorrect})`
+  );
+
+  // Check if this is from a mobile controller
+  const isMobileController = room.mobileControllers.some(
+    (c) => c.id === socket.id
+  );
+
+  if (isMobileController) {
+    const controller = room.mobileControllers.find((c) => c.id === socket.id);
+    if (controller) {
+      // Inicializar propiedades si no existen
+      if (controller.score === undefined) controller.score = 0;
+      if (controller.correctAnswers === undefined)
+        controller.correctAnswers = 0;
+      if (controller.wrongAnswers === undefined) controller.wrongAnswers = 0;
+
+      // Mark this controller as having answered
+      controller.hasAnswered = true;
+
+      if (isCorrect) {
+        controller.score += 1; // Suma exactamente 1 punto por respuesta correcta
+        controller.correctAnswers += 1;
+      } else {
+        controller.wrongAnswers += 1;
+      }
+
+      // Send result ONLY to the player who answered
+      socket.emit('answer_result', {
+        correct: isCorrect,
+        score: controller.score,
+        totalCorrect: controller.correctAnswers,
+        totalWrong: controller.wrongAnswers,
+      });
+
+      // Notify everyone else that a player has answered WITHOUT revealing correctness
+      io.to(roomCode).emit('player_answered', {
+        playerId: socket.id,
+        nickname: controller.nickname,
+        answer,
+        score: controller.score,
+      });
+    }
+  } else {
+    // Similar logic for web players...
+    const player = room.players.find((p) => p.id === socket.id);
+    if (player) {
+      // Inicializar propiedades si no existen
+      if (player.score === undefined) player.score = 0;
+      if (player.correctAnswers === undefined) player.correctAnswers = 0;
+      if (player.wrongAnswers === undefined) player.wrongAnswers = 0;
+
+      // Mark this player as having answered
+      player.hasAnswered = true;
+
+      if (isCorrect) {
+        player.score += 1;
+        player.correctAnswers += 1;
+      } else {
+        player.wrongAnswers += 1;
+      }
+
+      // Send result ONLY to the player who answered
+      socket.emit('answer_result', {
+        correct: isCorrect,
+        correctAnswer: correctAnswer,
+        score: player.score,
+        totalCorrect: player.correctAnswers,
+        totalWrong: player.wrongAnswers,
+      });
+
+      // Notify everyone else that a player has answered WITHOUT revealing correctness
+      io.to(roomCode).emit('player_answered', {
+        playerId: player.id,
+        nickname: player.nickname,
+        answer,
+        score: player.score,
+      });
+    }
+  }
+
+  // Check if ALL participants (both web and mobile) have answered
+  const allPlayersAnswered =
+    room.players.length > 0 &&
+    room.players.every((p) => p.hasAnswered === true);
+
+  const allControllersAnswered =
+    room.mobileControllers.length > 0 &&
+    room.mobileControllers.every((c) => c.hasAnswered === true);
+
+  // Check if we have a combination of players and controllers with at least one answer
+  const hasPlayers = room.players.length > 0;
+  const hasControllers = room.mobileControllers.length > 0;
+
+  // Only proceed if we have participants and all of them have answered
+  const shouldEndQuestion =
+    (hasPlayers && allPlayersAnswered) ||
+    (hasControllers && allControllersAnswered) ||
+    (hasPlayers &&
+      hasControllers &&
+      allPlayersAnswered &&
+      allControllersAnswered);
+
+  if (shouldEndQuestion) {
+    console.log(
+      `All participants have answered in room ${roomCode}. Ending question...`
+    );
+
+    // Stop the timer
+    if (room.timer) {
+      clearInterval(room.timer);
+      room.timer = undefined;
+    }
+
+    // Emit question_ended with correctAnswer to all clients
+    io.to(roomCode).emit('question_ended', {
+      correctAnswer: correctAnswer,
+      allAnswered: true,
+    });
+  }
+}
+
 export function startNewQuestion(io: Server, roomCode: string): void {
   const room = getRoom(roomCode);
   if (!room) {
@@ -361,7 +508,7 @@ export function startNewQuestion(io: Server, roomCode: string): void {
   if (room.timer) {
     console.log(`⚠️ Clearing existing timer for room ${roomCode}`);
     clearInterval(room.timer);
-    room.timer = undefined;
+    room.timer = undefined; // Usar undefined en lugar de null
   }
 
   // Ensure currentRound is at least 1
@@ -369,10 +516,6 @@ export function startNewQuestion(io: Server, roomCode: string): void {
     console.log(`⚠️ Fixing currentRound for room ${roomCode}`);
     room.currentRound = 1;
   }
-
-  console.log(
-    `⚠️ Starting new question for room ${roomCode}, round ${room.currentRound}`
-  );
 
   // Get questions based on category, or use default if category not available
   let questions = defaultQuestions;
@@ -472,168 +615,15 @@ export function startNewQuestion(io: Server, roomCode: string): void {
 
       console.log(`⚠️ Time's up for question in room ${roomCode}`);
 
-      // Make sure we have the current question and send question_ended with correct answer
+      // Enviar evento de pregunta terminada con la respuesta correcta
       if (room.currentQuestion && room.currentQuestion.question) {
         io.to(roomCode).emit('question_ended', {
           correctAnswer: room.currentQuestion.question.correctOptionId,
           timeUp: true,
         });
       }
-
-      // Handle automatic progression if needed
     }
-  }, 1000); // Exact 1-second interval
-}
-export function submitAnswer(
-  io: Server,
-  socket: Socket,
-  roomCode: string,
-  answer: string
-): void {
-  const room = getRoom(roomCode);
-  if (!room || room.status !== 'playing') {
-    socket.emit('error', {
-      message: 'Room not found or game not in playing state',
-    });
-    return;
-  }
-
-  // Verify we have a current question
-  if (!room.currentQuestion || !room.currentQuestion.question) {
-    socket.emit('error', { message: 'No current question available' });
-    return;
-  }
-
-  // Get the correct answer from the current question
-  const correctAnswer = room.currentQuestion.question.correctOptionId;
-  const isCorrect = correctAnswer === answer;
-
-  console.log(
-    `Answer submitted by ${socket.id}: ${answer} (Correct: ${isCorrect})`
-  );
-
-  // Check if this is from a mobile controller
-  const isMobileController = room.mobileControllers.some(
-    (c) => c.id === socket.id
-  );
-
-  if (isMobileController) {
-    const controller = room.mobileControllers.find((c) => c.id === socket.id);
-    if (controller) {
-      // Initialize properties if they don't exist
-      controller.score = controller.score ?? 0;
-      controller.correctAnswers = controller.correctAnswers ?? 0;
-      controller.wrongAnswers = controller.wrongAnswers ?? 0;
-
-      // Mark this controller as having answered
-      controller.hasAnswered = true;
-
-      if (isCorrect) {
-        controller.score += 1;
-        controller.correctAnswers += 1;
-      } else {
-        controller.wrongAnswers += 1;
-      }
-
-      // Send result ONLY to the player who answered
-      socket.emit('answer_result', {
-        correct: isCorrect,
-        score: controller.score,
-        totalCorrect: controller.correctAnswers,
-        totalWrong: controller.wrongAnswers,
-      });
-
-      // Notify everyone else that a player has answered WITHOUT revealing correctness
-      io.to(roomCode).emit('player_answered', {
-        playerId: socket.id,
-        nickname: controller.nickname,
-        answer,
-        score: controller.score,
-      });
-
-      // Check if all controllers have answered
-      const allControllersAnswered =
-        room.mobileControllers.length > 0 &&
-        room.mobileControllers.every((c) => c.hasAnswered === true);
-
-      // If all have answered, end the question
-      if (allControllersAnswered) {
-        console.log(
-          `All controllers have answered in room ${roomCode}. Ending question...`
-        );
-
-        // Emit question_ended with correctAnswer to all clients
-        io.to(roomCode).emit('question_ended', {
-          correctAnswer: correctAnswer,
-          allAnswered: true,
-        });
-      }
-    }
-  } else {
-    // Similar logic for web players
-    const player = room.players.find((p) => p.id === socket.id);
-    if (player) {
-      // Mark this player as having answered
-      player.hasAnswered = true;
-
-      if (isCorrect) {
-        player.score += 1;
-        player.correctAnswers += 1;
-      } else {
-        player.wrongAnswers += 1;
-      }
-
-      // Send result ONLY to the player who answered
-      socket.emit('answer_result', {
-        correct: isCorrect,
-        correctAnswer: correctAnswer,
-        score: player.score,
-        totalCorrect: player.correctAnswers,
-        totalWrong: player.wrongAnswers,
-      });
-
-      // Notify everyone else that a player has answered WITHOUT revealing correctness
-      io.to(roomCode).emit('player_answered', {
-        playerId: player.id,
-        nickname: player.nickname,
-        answer,
-        score: player.score,
-      });
-
-      // Check if all players have answered
-      const allPlayersAnswered =
-        room.players.length > 0 &&
-        room.players.every((p) => p.hasAnswered === true);
-
-      // If all have answered, end the question
-      if (allPlayersAnswered) {
-        console.log(
-          `All players have answered in room ${roomCode}. Ending question...`
-        );
-
-        // Emit question_ended with correctAnswer to all clients
-        io.to(roomCode).emit('question_ended', {
-          correctAnswer: correctAnswer,
-          allAnswered: true,
-        });
-      }
-    }
-  }
-  const allParticipantsAnswered =
-    (room.players.length > 0 || room.mobileControllers.length > 0) &&
-    room.players.every((p) => p.hasAnswered === true) &&
-    room.mobileControllers.every((c) => c.hasAnswered === true);
-
-  if (allParticipantsAnswered) {
-    console.log(
-      `All participants have answered in room ${roomCode}. Ending question...`
-    );
-
-    io.to(roomCode).emit('question_ended', {
-      correctAnswer: correctAnswer,
-      allAnswered: true,
-    });
-  }
+  }, 1000);
 }
 
 export function endGame(io: Server, roomCode: string): void {
