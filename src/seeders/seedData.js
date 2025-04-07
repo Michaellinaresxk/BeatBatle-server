@@ -1,4 +1,3 @@
-// src/seeders/seedData.js
 const fs = require('fs');
 const path = require('path');
 const MongoDBConnection = require('../config/mongodb-connection.ts');
@@ -35,7 +34,6 @@ const questionsByCategory = {
     }
   ],
 
-  // More categories...
   'rock-80': [
     {
       question: 'Which band released the hit song "Sweet Child O\' Mine"?',

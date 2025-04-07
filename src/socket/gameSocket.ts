@@ -1,11 +1,11 @@
+// src/socket/gameSocket.ts
 import type { Server, Socket } from 'socket.io';
 import { createRoom, joinRoom, leaveRoom } from './helpers/roomHelpers';
 import { submitAnswer, startNewQuestion, endGame } from './helpers/gameHelpers';
 import { handleDisconnect } from './helpers/connectionHelpers';
 import { getRoom, getRooms } from '../store/roomStore';
-import { GameResult } from '../types/gameTypes';
 
-export default function initializeSocket(io: Server) {
+export default function initializeSocket(io: Server): void {
   io.engine.on('connection_error', (err) => {
     console.log('Connection error:', err.message);
   });
@@ -128,8 +128,8 @@ export default function initializeSocket(io: Server) {
             });
           }
 
-          // Si el juego ya está en progreso, enviar el evento game_started al controlador
-          // SOLO si la selección está completa
+          // If game is already in progress, send game_started event to controller
+          // ONLY if selection is complete
           if (
             room &&
             room.status === 'playing' &&
@@ -148,7 +148,7 @@ export default function initializeSocket(io: Server) {
               gameReady: true,
             });
 
-            // También enviar la pregunta actual si existe
+            // Also send current question if it exists
             if (room.currentQuestion) {
               socket.emit('new_question', room.currentQuestion);
             }
@@ -207,8 +207,8 @@ export default function initializeSocket(io: Server) {
             isHost: room.hostId === socket.id,
           });
 
-          // Si el juego ya está en progreso, enviar el evento game_started
-          // SOLO si la selección está completa
+          // If game is already in progress, send game_started event
+          // ONLY if selection is complete
           if (room.status === 'playing' && room.category && room.categoryType) {
             socket.emit('game_started', {
               roomCode: normalizedRoomCode,
@@ -219,7 +219,7 @@ export default function initializeSocket(io: Server) {
               gameReady: true,
             });
 
-            // También enviar la pregunta actual si existe
+            // Also send current question if it exists
             if (room.currentQuestion) {
               socket.emit('new_question', room.currentQuestion);
             }
@@ -260,7 +260,7 @@ export default function initializeSocket(io: Server) {
       const normalizedRoomCode = data.roomCode.trim().toUpperCase();
       console.log(`📡 Controller ENTER in room ${normalizedRoomCode}`);
 
-      // Obtener información de la sala
+      // Get room information
       const room = getRoom(normalizedRoomCode);
       if (!room) {
         console.error(
@@ -269,7 +269,7 @@ export default function initializeSocket(io: Server) {
         return;
       }
 
-      // Debug: Verificar el estado de la sala
+      // Debug: Verify room state
       console.log(`🔍 Room state for ${normalizedRoomCode}:`, {
         status: room.status,
         category: room.category,
@@ -279,13 +279,13 @@ export default function initializeSocket(io: Server) {
         isController: room.mobileControllers.some((c) => c.id === socket.id),
       });
 
-      // Reenviar el evento a todos en la sala
+      // Forward event to everyone in the room
       io.to(normalizedRoomCode).emit('controller_enter', {
         playerId: socket.id,
       });
 
-      // Si el juego ya está en progreso, enviar el evento game_started al controlador
-      // SOLO si la selección está completa
+      // If game is already in progress, send game_started event to controller
+      // ONLY if selection is complete
       if (room.status === 'playing' && room.category && room.categoryType) {
         console.log(
           `🎮 Game already in progress, sending game_started to controller ${socket.id}`
@@ -299,7 +299,7 @@ export default function initializeSocket(io: Server) {
           gameReady: true,
         });
 
-        // También enviar la pregunta actual si existe
+        // Also send current question if it exists
         if (room.currentQuestion) {
           socket.emit('new_question', room.currentQuestion);
         }
@@ -333,7 +333,6 @@ export default function initializeSocket(io: Server) {
 
     socket.on('screen_changed', (data) => {
       if (!data || !data.roomCode || !data.screen) {
-        // Resend the command to all clients in the room except the sender
         return;
       }
 
@@ -457,7 +456,7 @@ export default function initializeSocket(io: Server) {
           return;
         }
 
-        // Verificar que tengamos categoría y tipo de categoría
+        // Verify that we have category and category type
         if (!categoryId && !room.category) {
           console.error(`❌ Missing category for room ${normalizedRoomCode}`);
           socket.emit('error', {
@@ -482,7 +481,7 @@ export default function initializeSocket(io: Server) {
         if (categoryId) room.category = categoryId;
         if (categoryType) room.categoryType = categoryType;
 
-        // Solo enviar game_started si tenemos toda la información necesaria
+        // Only send game_started if we have all necessary information
         const hasCategory =
           room.category !== null && room.category !== undefined;
         const hasCategoryType =
@@ -549,7 +548,7 @@ export default function initializeSocket(io: Server) {
         console.log(
           `⚠️ No current question available for room ${normalizedRoomCode}`
         );
-        // Si no hay pregunta actual pero el juego está en progreso, iniciar una nueva pregunta
+        // If no current question but game is in progress, start a new question
         if (
           room &&
           room.status === 'playing' &&
@@ -564,7 +563,7 @@ export default function initializeSocket(io: Server) {
           console.log(
             `⚠️ Game not ready or selection incomplete for room ${normalizedRoomCode}`
           );
-          // Notificar al cliente que no hay pregunta disponible
+          // Notify client that no question is available
           socket.emit('error', {
             message:
               'No current question available. Please make sure the game has started.',
@@ -591,14 +590,14 @@ export default function initializeSocket(io: Server) {
         return;
       }
 
-      // Verificar si tenemos pregunta actual
+      // Check if we have a current question
       if (!room.currentQuestion) {
         console.error('❌ No current question available');
         socket.emit('error', { message: 'No current question available' });
         return;
       }
 
-      // Obtener la pregunta actual y verificar si la respuesta es correcta
+      // Get the current question and check if the answer is correct
       const correctAnswer = room.currentQuestion.question.correctOptionId;
       const isCorrect = correctAnswer === data.answer;
 
@@ -608,13 +607,13 @@ export default function initializeSocket(io: Server) {
         } (submitted: ${data.answer}, correct: ${correctAnswer})`
       );
 
-      // Enviar resultado al controlador que envió la respuesta
+      // Send result to the controller that sent the answer
       socket.emit('answer_result', {
         correct: isCorrect,
         correctAnswer: correctAnswer,
       });
 
-      // Notificar a todos en la sala sobre la respuesta
+      // Notify everyone in the room about the answer
       const controller = room.mobileControllers.find((c) => c.id === socket.id);
       if (controller) {
         io.to(normalizedRoomCode).emit('player_answered', {
@@ -646,10 +645,10 @@ export default function initializeSocket(io: Server) {
         room.currentRound++;
 
         if (room.currentRound <= room.gameSettings.totalRounds) {
-          // Reiniciar estados para todos los clientes antes de enviar la nueva pregunta
+          // Reset states for all clients before sending the new question
           io.to(normalizedRoomCode).emit('reset_question_state');
 
-          // Pequeña pausa antes de enviar la nueva pregunta
+          // Small pause before sending the new question
           setTimeout(() => {
             console.log(
               `🔄 Starting question ${room.currentRound} for room ${normalizedRoomCode}`
@@ -856,7 +855,7 @@ export default function initializeSocket(io: Server) {
         return;
       }
 
-      // Definir el tipo de results explícitamente para evitar errores TypeScript
+      // Define results type explicitly to avoid TypeScript errors
       const results: Record<
         string,
         {
@@ -867,7 +866,7 @@ export default function initializeSocket(io: Server) {
         }
       > = {};
 
-      // Añadir jugadores regulares
+      // Add regular players
       room.players.forEach((player) => {
         results[player.id] = {
           nickname: player.nickname,
@@ -878,9 +877,9 @@ export default function initializeSocket(io: Server) {
         };
       });
 
-      // Añadir controladores móviles
+      // Add mobile controllers
       room.mobileControllers.forEach((controller) => {
-        // Asegurarse de que existan los datos de puntuación
+        // Ensure score data exists
         results[controller.id] = {
           nickname: controller.nickname,
           score: controller.score || 0,
@@ -896,7 +895,7 @@ export default function initializeSocket(io: Server) {
         mobileControllersCount: room.mobileControllers.length,
       });
 
-      // Enviar resultados solo al cliente que los solicitó
+      // Send results only to the client that requested them
       socket.emit('game_results', {
         results,
         roomCode: normalizedRoomCode,

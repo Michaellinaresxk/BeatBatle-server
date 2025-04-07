@@ -1,4 +1,4 @@
-// routes/quizRoutes.js
+// src/routes/quizRoutes.js (Versión CommonJS para compatibilidad)
 const express = require('express');
 const router = express.Router();
 const quizController = require('../controllers/quizController');
@@ -10,7 +10,10 @@ router.get('/types', quizController.getQuizTypes);
 router.get('/categories', quizController.getQuizCategories);
 
 // Obtener preguntas por categoría
-router.get('/questions/category/:categoryId', quizController.getQuestionsByCategory);
+router.get(
+  '/questions/category/:categoryId',
+  quizController.getQuestionsByCategory
+);
 
 // Obtener todas las preguntas agrupadas por categoría
 router.get('/questions/all', quizController.getAllQuestionsByCategory);
