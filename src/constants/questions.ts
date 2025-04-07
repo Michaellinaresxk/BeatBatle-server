@@ -1,25 +1,31 @@
-// src/data/questions.js
-// Using CommonJS format instead of ES6 modules
+// Define types for our question data structure
+export type QuizOption = {
+  text: string;
+  isCorrect: boolean;
+};
 
-/**
- * @typedef {Object} QuizOption
- * @property {string} text - The text of the option
- * @property {boolean} isCorrect - Whether the option is correct
- */
+export type QuizQuestion = {
+  question: string;
+  options: {
+    A: string;
+    B: string;
+    C: string;
+    D: string;
+  };
+  correctOptionId: string;
+};
 
-/**
- * @typedef {Object} QuizQuestion
- * @property {string} question - The question text
- * @property {Object.<string, string>} options - The answer options
- * @property {string} correctOptionId - The ID of the correct option
- */
+// Define the valid category keys
+export type QuizCategoryKey =
+  | 'rock-70'
+  | 'rock-80'
+  | 'funk'
+  | 'rap'
+  | 'latin'
+  | string;
 
-/**
- * Quiz questions organized by category
- * @type {Object.<string, QuizQuestion[]>}
- */
-const questionsByCategory = {
-  // 70s Rock questions
+// Quiz questions organized by category
+export const questionsByCategory: Record<QuizCategoryKey, QuizQuestion[]> = {
   'rock-70': [
     {
       question:
@@ -43,8 +49,6 @@ const questionsByCategory = {
       correctOptionId: 'B',
     },
   ],
-
-  // 80s Rock questions
   'rock-80': [
     {
       question: 'Which band released the hit song "Sweet Child O\' Mine"?',
@@ -67,8 +71,6 @@ const questionsByCategory = {
       correctOptionId: 'C',
     },
   ],
-
-  // Funk questions
   funk: [
     {
       question: 'Who is known as the "Godfather of Funk"?',
@@ -91,8 +93,6 @@ const questionsByCategory = {
       correctOptionId: 'B',
     },
   ],
-
-  // Rap questions
   rap: [
     {
       question: 'Which rapper released the album "The Chronic" in 1992?',
@@ -115,8 +115,6 @@ const questionsByCategory = {
       correctOptionId: 'C',
     },
   ],
-
-  // Latin questions
   latin: [
     {
       question: 'Which artist is known as the "Queen of Salsa"?',
@@ -141,8 +139,7 @@ const questionsByCategory = {
   ],
 };
 
-// Default general knowledge questions
-const defaultQuestions = [
+export const defaultQuestions: QuizQuestion[] = [
   {
     question: 'What is the capital of France?',
     options: {
@@ -174,8 +171,3 @@ const defaultQuestions = [
     correctOptionId: 'C',
   },
 ];
-
-module.exports = {
-  questionsByCategory,
-  defaultQuestions,
-};
