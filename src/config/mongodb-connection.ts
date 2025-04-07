@@ -1,3 +1,4 @@
+// src/config/mongodb-connection.js
 const { MongoClient, ServerApiVersion } = require('mongodb');
 require('dotenv').config();
 
@@ -8,7 +9,7 @@ class MongoDBConnection {
   constructor() {
     if (!uri) {
       throw new Error(
-        'MONGODB_URI is not defined in the environment variables'.
+        'MONGODB_URI is not defined in the environment variables'
       );
     }
 

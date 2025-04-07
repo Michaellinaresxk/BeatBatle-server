@@ -6,6 +6,19 @@ import { Server } from 'socket.io';
 import cors from 'cors';
 import initializeSocket from '../socket/gameSocket';
 
+// Conectar a MongoDB
+mongoose
+  .connect(process.env.MONGODB_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  })
+  .then(() => {
+    console.log('Conexión exitosa a MongoDB');
+  })
+  .catch((err) => {
+    console.error('Error al conectar a MongoDB:', err);
+  });
+
 const app = express();
 const server = http.createServer(app);
 
@@ -18,6 +31,7 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
+app.use(express.json());
 
 const io = new Server(server, {
   cors: corsOptions,
@@ -30,13 +44,11 @@ const io = new Server(server, {
   perMessageDeflate: true,
   maxHttpBufferSize: 1e8,
 });
+
 // Añadir middleware para registrar conexiones y manejo de errores
 io.use((socket, next) => {
   const address = socket.handshake.address;
   console.log(`Nueva conexión socket desde IP: ${address} - ID: ${socket.id}`);
-
-  // Puedes añadir validación de autenticación aquí si es necesario
-
   next();
 });
 
@@ -50,10 +62,13 @@ io.engine.on('connection_error', (err) => {
 // Inicializar los manejadores de socket
 initializeSocket(io);
 
-// Ruta básica para comprobar que el servidor está funcionando
+// Rutas básicas
 app.get('/', (req, res) => {
-  res.send('Beat Battle Server está funcionando');
+  res.send('Quiz App Server está funcionando');
 });
+
+// Integrar rutas de la API
+app.use('/api/quiz', quizRoutes);
 
 // Ruta de diagnóstico para listar las salas activas
 app.get('/api/diagnostics/rooms', (req, res) => {
@@ -83,6 +98,7 @@ app.get('/api/diagnostics/rooms', (req, res) => {
   }
 });
 
+// Rutas para el controlador
 app.post('/api/control/:roomCode/:action', (req, res) => {
   const { roomCode, action } = req.params;
   const { direction } = req.body;
@@ -105,7 +121,8 @@ app.post('/api/control/:roomCode/:action', (req, res) => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`🚀 Servidor funcionando en puerto ${PORT}`);
-  console.log(`🔗 Socket.IO disponible en http://localhost:${PORT}`);
+  console.log(`🔗 Socket.IO disponible en http://localhost:${PORT}/socket.io`);
+  console.log(`📚 API de Quiz disponible en http://localhost:${PORT}/api/quiz`);
 });
 
 export default server;
