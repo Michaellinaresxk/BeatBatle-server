@@ -5,7 +5,7 @@ export interface Player {
   score: number;
   correctAnswers: number;
   wrongAnswers: number;
-  hasAnswered?: boolean; // Added to track if player has answered current question
+  hasAnswered?: boolean;
 }
 
 export interface MobileController {
@@ -15,7 +15,7 @@ export interface MobileController {
   score?: number;
   correctAnswers?: number;
   wrongAnswers?: number;
-  hasAnswered?: boolean; // Added to track if controller has answered current question
+  hasAnswered?: boolean;
 }
 
 export type RoomStatus = 'waiting' | 'playing' | 'finished';
